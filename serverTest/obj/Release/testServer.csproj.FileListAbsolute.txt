@@ -1,0 +1,1 @@
+C:\tcb\src\rpc.net\serverTest\bin\Release\serverTest.exe.config

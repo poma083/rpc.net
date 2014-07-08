@@ -1,0 +1,13 @@
+C:\tcb\src\rpc.net\serverTest\bin\Debug\serverTest.exe.config
+C:\tcb\src\rpc.net\serverTest\bin\Debug\serverTest.exe
+C:\tcb\src\rpc.net\serverTest\bin\Debug\serverTest.pdb
+C:\tcb\src\rpc.net\serverTest\bin\Debug\PDUDatas.dll
+C:\tcb\src\rpc.net\serverTest\bin\Debug\PDUServer.dll
+C:\tcb\src\rpc.net\serverTest\bin\Debug\rpcTestCommon.dll
+C:\tcb\src\rpc.net\serverTest\bin\Debug\log4net.dll
+C:\tcb\src\rpc.net\serverTest\bin\Debug\PDUDatas.pdb
+C:\tcb\src\rpc.net\serverTest\bin\Debug\PDUServer.pdb
+C:\tcb\src\rpc.net\serverTest\bin\Debug\rpcTestCommon.pdb
+C:\tcb\src\rpc.net\serverTest\obj\x86\Debug\ResolveAssemblyReference.cache
+C:\tcb\src\rpc.net\serverTest\obj\x86\Debug\serverTest.exe
+C:\tcb\src\rpc.net\serverTest\obj\x86\Debug\serverTest.pdb
