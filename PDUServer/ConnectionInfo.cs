@@ -9,6 +9,7 @@ using PDUDatas;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Reflection;
+using System.Configuration;
 
 namespace PDUServer
 {
@@ -20,8 +21,8 @@ namespace PDUServer
 
         private Socket sSocket;
         private SortedList<Guid, ConnectionInfo> owner;
-        private int validitySessionPeriod;
-        private int enquireLinkPeriod;
+        private uint validitySessionPeriod;
+        private uint enquireLinkPeriod;
         private Timer enquire_link_timer;
         private DateTime lastReciveCommandTime;
         CheckSystemIntegrityState checkSystemIntegrityState = CheckSystemIntegrityState.ENABLE;
@@ -37,7 +38,7 @@ namespace PDUServer
         uint positionFinish = 0;
         #endregion
 
-        public ConnectionInfo(SortedList<Guid, ConnectionInfo> _owner, Socket s, int EnquireLinkPeriod)
+        public ConnectionInfo(SortedList<Guid, ConnectionInfo> _owner, Socket s, uint EnquireLinkPeriod)
         {
             id = Guid.NewGuid();
             owner = _owner;
@@ -78,7 +79,7 @@ namespace PDUServer
                         {
                             if (sSocket != null)
                             {
-                                Logger.Log.Warn("Клиент " + this.sSocket.RemoteEndPoint.ToString() + " просрочил ответы запросов enquire_link соединение будет закрыто!");
+                                Logger.Log.Warn("Клиент c address=\"" + this.sSocket.RemoteEndPoint.ToString() + "\" просрочил ответы запросов enquire_link соединение будет закрыто!");
                             }
                         }
                         this.CloseConnection();
@@ -87,7 +88,14 @@ namespace PDUServer
                     {
                         //посылаем enquireLink
                         PDU pdu = new PDU();
-                        pdu.Sequence = this.lastSequence + 1;
+                        lock (enterLockObject)
+                        {
+                            unchecked
+                            {
+                                this.lastSequence++;
+                            }
+                            pdu.Sequence = this.lastSequence;
+                        }
                         pdu.CommandState = 0;
                         //pdu.Lenght = 16;-
                         pdu.CommandID = 0x00000015;
@@ -352,7 +360,7 @@ namespace PDUServer
             }
             catch (Exception exc)
             {
-                Logger.Log.ErrorFormat("Ошибка AddRequest клиент={0} куьщеу={1}", Id, RemoteEndPoint, exc);
+                Logger.Log.ErrorFormat("Ошибка AddRequest клиент={0} address={1}", Id, RemoteEndPoint, exc);
             }
         }
         private int AddPDUToResponseQueue(PDU data)
@@ -413,6 +421,21 @@ namespace PDUServer
                             Logger.Log.Debug("DoWorkRequest:bind_transceiver");
                             PDUBindTransceiver pt = new PDUBindTransceiver(packet);
 
+                            PDUConfigSection sec = (PDUConfigSection)ConfigurationManager.GetSection("PDUConfig");
+
+                            bool isCompleted = false;
+                            UserCfgClass uc = sec.Server.Users[pt.SystemID];
+                            if (uc != null)
+                            {
+                                if (uc.Password.Equals(pt.Password))
+                                {
+                                    isCompleted = true;
+                                }
+                            }
+
+                            pt.CommandState = isCompleted ? (uint)0 : (uint)3;
+
+
                             SetTimeout((int)pt.Timeout);
                             if (evConnect != null)
                             {
@@ -424,14 +447,14 @@ namespace PDUServer
                                 {
                                     Logger.Log.Fatal("Ошибка при пользовательской обработке evConnect ", exc);
                                 }
-                                if (pt.CommandState == 0)
-                                {
-                                    ConnectionState = ConnectionStates.BINDED;
-                                }
+                            }
+                            if (pt.CommandState == 0)
+                            {
+                                ConnectionState = ConnectionStates.BINDED;
                             }
 
                             // создадим ответ и добавим в очередь обработки
-                            RespData = new PDUBindTransceiverResp(pt.CommandState, pt.Sequence + 1, pt.SystemID);
+                            RespData = new PDUBindTransceiverResp(pt.CommandState, pt.Sequence, pt.SystemID);
                             if (evConnectCompleted != null)
                             {
                                 try
@@ -474,7 +497,7 @@ namespace PDUServer
                             }
 
                             // создадим ответ и добавим в очередь обработки
-                            RespData = new PDUEnquireLinkResp(pel.CommandState, pel.Sequence + 1);
+                            RespData = new PDUEnquireLinkResp(pel.CommandState, pel.Sequence);
 
                             if (evEnquireLinkCompleted != null)
                             {
@@ -542,68 +565,79 @@ namespace PDUServer
                         {
                             Logger.Log.Debug("DoWorkRequest:invoke");
                             PDUInvoke pi = new PDUInvoke(packet);
-
-                            if (evInvoke != null)
+                            if (ConnectionState == ConnectionStates.BINDED)
                             {
-                                try
+                                if (evInvoke != null)
                                 {
-                                    evInvoke(pi, this);
-                                }
-                                catch (Exception exc)
-                                {
-                                    Logger.Log.Fatal("Ошибка при пользовательской обработке evInvoke ", exc);
-                                }
-                            }
-
-                            Assembly ass = null;// pi.Assembly;
-                            Type instanceType = pi.InstanceType;                            
-                            if (instanceType.IsInterface)
-                            {
-                                string interfaceName = instanceType.Name;
-                                instanceType = null;
-                                Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
-                                foreach (Assembly a in assemblies)
-                                {
-                                    Type[] types = a.GetTypes();
-                                    foreach (Type t in types)
+                                    try
                                     {
-                                        if (t.GetInterface(interfaceName) != null)
+                                        evInvoke(pi, this);
+                                    }
+                                    catch (Exception exc)
+                                    {
+                                        Logger.Log.Fatal("Ошибка при пользовательской обработке evInvoke ", exc);
+                                    }
+                                }
+
+                                Assembly ass = null;// pi.Assembly;
+                                Type instanceType = null;// pi.InstanceType;
+                                if (pi.InstanceType.IsInterface)
+                                {
+                                    Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+                                    foreach (Assembly a in assemblies)
+                                    {
+                                        Type[] types = a.GetTypes();
+                                        foreach (Type t in types)
                                         {
+                                            Type interfaceType = t.GetInterfaces().Where(it => it.FullName == pi.InstanceType.FullName).FirstOrDefault();
+                                            if (interfaceType == null)
+                                            {
+                                                continue;
+                                            }
                                             instanceType = t;
                                             break;
                                         }
-                                    }
-                                    if (instanceType != null)
-                                    {
-                                        ass = a;
-                                        break;
+                                        if (instanceType != null)
+                                        {
+                                            ass = a;
+                                            break;
+                                        }
                                     }
                                 }
-                            }
-                            object instance = null;
-                            if (pi.IsInstance == 1)
-                            {
-                                instance = instanceType.GetConstructor(new Type[] { }).Invoke(new object[] { });
-                            }
-                            MemberInfo mi = instanceType.GetMethod(pi.Method, pi.BindingFlags);
-                            object[] aaa = pi.Arguments;
+                                else
+                                {
+                                    ass = pi.Assembly;
+                                    instanceType = pi.InstanceType;
+                                }
+                                object instance = null;
+                                if (pi.IsInstance == 1)
+                                {
+                                    instance = instanceType.GetConstructor(new Type[] { }).Invoke(new object[] { });
+                                }
+                                MemberInfo mi = instanceType.GetMethod(pi.Method, pi.BindingFlags);
+                                object[] aaa = pi.Arguments;
 
-                            Type returnType = ((MethodInfo)mi).ReturnType;
+                                Type returnType = ((MethodInfo)mi).ReturnType;
 
-                            object data = null;
-                            Exception invokationException = null;
-                            try
-                            {
-                                data = instanceType.InvokeMember(pi.Method, BindingFlags.InvokeMethod | pi.BindingFlags, null, instance, aaa);
-                                // создадим ответ и добавим в очередь обработки
-                                RespData = new PDUInvokeResp(0, pi.Sequence + 1, returnType.FullName, data, null);
+                                object data = null;
+                                Exception invokationException = null;
+                                try
+                                {
+                                    data = instanceType.InvokeMember(pi.Method, BindingFlags.InvokeMethod | pi.BindingFlags, null, instance, aaa);
+                                    // создадим ответ и добавим в очередь обработки
+                                    RespData = new PDUInvokeResp(0, pi.Sequence + 1, returnType.FullName, data, null);
+                                }
+                                catch (TargetInvocationException ex)
+                                {
+                                    // создадим ответ и добавим в очередь обработки
+                                    invokationException = ex.InnerException;
+                                }
+                                RespData = new PDUInvokeResp(0, pi.Sequence, returnType.FullName, data, invokationException);
                             }
-                            catch (TargetInvocationException ex)
+                            else
                             {
-                                // создадим ответ и добавим в очередь обработки
-                                invokationException = ex.InnerException;
+                                RespData = new PDUInvokeResp(0, pi.Sequence, typeof(void).FullName, null, new Exception("Клиент не прошёл авторизацию"));
                             }
-                            RespData = new PDUInvokeResp(0, pi.Sequence + 1, returnType.FullName, data, invokationException);
 
                             if (evInvokeCompleted != null)
                             {
@@ -614,6 +648,81 @@ namespace PDUServer
                                 catch (Exception exc)
                                 {
                                     Logger.Log.Fatal("Ошибка при пользовательской обработке evInvokeCompleted ", exc);
+                                }
+                            }
+                            if (RespData != null)
+                            {
+                                AddPDUToResponseQueue(RespData);
+                            }
+                        }
+                        catch (Exception exc)
+                        {
+                            Logger.Log.Fatal("Неизвестная ошибка в case 0x00000003 ReceiveCallback | ", exc);
+                        }
+                        #endregion
+                        break;
+                    case 0x00000013://invokeByName
+                        #region invokeByName
+                        try
+                        {
+                            Logger.Log.Debug("DoWorkRequest:invokeByName");
+                            PDUInvokeByName pi_bn = new PDUInvokeByName(packet);
+                            if (ConnectionState == ConnectionStates.BINDED)
+                            {
+                                if (evInvokeByName != null)
+                                {
+                                    try
+                                    {
+                                        evInvokeByName(pi_bn, this);
+                                    }
+                                    catch (Exception exc)
+                                    {
+                                        Logger.Log.Fatal("Ошибка при пользовательской обработке evInvokeByName ", exc);
+                                    }
+                                }
+
+                                object[] aaa = pi_bn.Arguments;
+
+                                InvokeMethodsContainer inst = InvokeMethodsContainer.Instance;
+
+                                InvokeMethodInfo info = InvokeMethodsContainer.Instance[pi_bn.InvokeName];
+
+                                object data = null;
+                                Exception invokationException = null;
+                                try
+                                {
+                                    data = info.InstanceType.InvokeMember(
+                                        info.MethodName, 
+                                        BindingFlags.InvokeMethod | BindingFlags.DeclaredOnly | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static, 
+                                        null, 
+                                        info.Instance, 
+                                        aaa
+                                    );
+                                    // создадим ответ и добавим в очередь обработки
+                                    RespData = new PDUInvokeResp(0, pi_bn.Sequence + 1, info.ReturnType.FullName, data, null);
+                                }
+                                catch (TargetInvocationException ex)
+                                {
+                                    // создадим ответ и добавим в очередь обработки
+                                    invokationException = ex.InnerException;
+                                }
+
+                                RespData = new PDUInvokeResp(0, pi_bn.Sequence, info.ReturnType.FullName, data, invokationException);
+                            }
+                            else
+                            {
+                                RespData = new PDUInvokeResp(0, pi_bn.Sequence, typeof(void).FullName, null, new Exception("Клиент не прошёл авторизацию"));
+                            }
+
+                            if (evInvokeByNameCompleted != null)
+                            {
+                                try
+                                {
+                                    evInvokeByNameCompleted(RespData, this);
+                                }
+                                catch (Exception exc)
+                                {
+                                    Logger.Log.Fatal("Ошибка при пользовательской обработке evInvokeByNameCompleted ", exc);
                                 }
                             }
                             if (RespData != null)
@@ -692,6 +801,9 @@ namespace PDUServer
         //invoke
         public event BeforeEventHandler evInvoke;
         public event AffterEventHandler evInvokeCompleted;
+        //invokeByName
+        public event BeforeEventHandler evInvokeByName;
+        public event AffterEventHandler evInvokeByNameCompleted;
         #endregion
     }
 }

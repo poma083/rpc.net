@@ -5,13 +5,14 @@ using System.Text;
 
 namespace PDUDatas
 {
+    [Serializable]
     public class PDURequestException : Exception
     {
-        //public PDURequestException()
-        //    : base()
-        //{
+        public PDURequestException()
+            : base()
+        {
 
-        //}
+        }
         //public PDURequestException(string message)
         //    : base(message)
         //{

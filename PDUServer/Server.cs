@@ -11,15 +11,13 @@ namespace PDUServer
     public class Server
     {
         Socket _serverSocket;
-        int _EnquireLinkPeriod = 3000;
         private SortedList<Guid, ConnectionInfo> _connections = new SortedList<Guid, ConnectionInfo>();
-        private ResultServerConfig resultServerConfig;
+        private ServerCfgClass serverConfig;
 
-        public Server(ResultServerConfig rsc)
+        public Server(ServerCfgClass rsc)
         {
-            Logger.Log.Debug("Запускаем сервер статусов...");
-            resultServerConfig = rsc;
-            //_EnquireLinkPeriod = 3000;
+            Logger.Log.Debug("Запускаем TCP-сервер...");
+            serverConfig = rsc;
         }
         public bool Start()
         {
@@ -36,15 +34,15 @@ namespace PDUServer
                 Logger.Log.Debug("ошибка в функции Start класса SpeechServerListenerSocket", ex);
                 return false;
             }
-            Logger.Log.Debug("Сервер статусов запущен...");
+            Logger.Log.Debug("TCP-сервер запущен...");
             return true;
         }
         private void SetupServerSocket()
         {
             // Получаем информацию о локальном компьютере
             IPAddress adr = IPAddress.Any;
-            IPAddress.TryParse(resultServerConfig.Host, out adr);
-            IPEndPoint myEndpoint = new IPEndPoint(adr, resultServerConfig.Port);
+            IPAddress.TryParse(serverConfig.Host, out adr);
+            IPEndPoint myEndpoint = new IPEndPoint(adr, serverConfig.Port);
 
             // Создаем сокет, привязываем его к адресу
             // и начинаем прослушивание
@@ -63,7 +61,7 @@ namespace PDUServer
                 connection = new ConnectionInfo(
                         _connections,
                         s.EndAccept(result),
-                        _EnquireLinkPeriod
+                        serverConfig.EnquireLinkPeriod
                     );
                 connection.evGenericNack += _evGenericNack;
                 connection.evGenericNackCompleted += _evGenericNackCompleted;
@@ -131,7 +129,7 @@ namespace PDUServer
                 }
                 else
                 {
-                    Logger.Log.Info("От удалёного клиента " + connection.RemoteEndPoint.ToString() + " получен пакет размером 0 байт - разрываем соединение");
+                    Logger.Log.Info("От удалёного клиента c address=\"" + connection.RemoteEndPoint.ToString() + "\" получен пакет размером 0 байт - разрываем соединение");
                     lock (_connections)
                     {
                         _connections.Remove(connection.Id);
@@ -143,7 +141,7 @@ namespace PDUServer
             {
                 if (exc.ErrorCode == Convert.ToInt32(SocketError.ConnectionReset))
                 {
-                    Logger.Log.Warn("Удалёный клиент " + connection.RemoteEndPoint.ToString() + " разорвал соединение");
+                    Logger.Log.Warn("Удалёный клиент c address=\"" + connection.RemoteEndPoint.ToString() + "\" разорвал соединение");
                     //lock (_connections)
                     //{
                     //    _connections.Remove(connection.Id);
@@ -377,6 +375,59 @@ namespace PDUServer
                     foreach (ConnectionInfo ci in _connections.Values)
                     {
                         ci.evInvokeCompleted -= value;
+                    }
+                }
+            }
+        }
+        //invokeByName
+        private event BeforeEventHandler _evInvokeByName;
+        public event BeforeEventHandler evInvokeByName
+        {
+            add
+            {
+                _evInvokeByName += value;
+                lock (_connections)
+                {
+                    foreach (ConnectionInfo ci in _connections.Values)
+                    {
+                        ci.evInvokeByName += value;
+                    }
+                }
+            }
+            remove
+            {
+                _evInvokeByName -= value;
+                lock (_connections)
+                {
+                    foreach (ConnectionInfo ci in _connections.Values)
+                    {
+                        ci.evInvokeByName -= value;
+                    }
+                }
+            }
+        }
+        private event AffterEventHandler _evInvokeByNameCompleted;
+        public event AffterEventHandler evInvokeByNameCompleted
+        {
+            add
+            {
+                _evInvokeByNameCompleted += value;
+                lock (_connections)
+                {
+                    foreach (ConnectionInfo ci in _connections.Values)
+                    {
+                        ci.evInvokeByNameCompleted += value;
+                    }
+                }
+            }
+            remove
+            {
+                _evInvokeByNameCompleted -= value;
+                lock (_connections)
+                {
+                    foreach (ConnectionInfo ci in _connections.Values)
+                    {
+                        ci.evInvokeByNameCompleted -= value;
                     }
                 }
             }

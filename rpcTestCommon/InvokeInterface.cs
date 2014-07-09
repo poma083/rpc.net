@@ -8,7 +8,7 @@ namespace rpcTestCommon
     public interface InvokeInterface
     {
         DateTime InvokeMethod_UserInfo(UserInfo ui);
-        DateTime? InvokeMethod_ReturnNull(UserInfo ui);        
+        DateTime? InvokeMethod_ReturnNull();        
         void InvokeMethod_EmptyResult(UserInfo ui);
     }
 }

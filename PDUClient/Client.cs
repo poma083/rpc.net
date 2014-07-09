@@ -15,12 +15,29 @@ namespace PDUClient
 {
     public class Client
     {
+        private class InvokeQueueItem : IDisposable
+        {
+            public PDU request;
+            public PDUInvokeResp response;
+            public EventWaitHandle waitEvent = new EventWaitHandle(false, EventResetMode.ManualReset);
+
+            #region IDisposable Members
+
+            public void Dispose()
+            {
+                if (waitEvent != null)
+                {
+                    waitEvent.Close();
+                    waitEvent.Dispose();
+                }
+            }
+
+            #endregion
+        }
         #region private fields
         private static object lockObject = new object();
         private Socket _socket;
-        private uint timeout;
-        private string host;
-        private ushort port;
+        private ClientCfgClass config;
         private uint sequence = 0;
         private byte[] buffer = new byte[8192];
 
@@ -29,7 +46,8 @@ namespace PDUClient
         private uint positionFinish = 0;
 
         private Timer generic_nack_timer;
-        private int genericNackPeriod = 3000;
+
+        private Dictionary<uint, InvokeQueueItem> invokeQueue = new Dictionary<uint, InvokeQueueItem>();
         #endregion
 
         private void sendGenericNack(Object state)
@@ -37,27 +55,29 @@ namespace PDUClient
             PDUGenericNack pgn = null;
             lock (lockObject)
             {
-                pgn = new PDUGenericNack(0, sequence += 2);
+                unchecked
+                {
+                    sequence++;
+                }
+                pgn = new PDUGenericNack(0, sequence);
             }
-            SocketError se = new SocketError(); 
+            SocketError se = new SocketError();
             int recv = _socket.Send(pgn.AllData, 0, pgn.Lenght, SocketFlags.None, out se);
         }
 
-        public Client(string _host, ushort _port, uint _timeout)
+        public Client(ClientCfgClass cfg)//string _host, ushort _port, uint _timeout, uint generikNack)
         {
-            host = _host;
-            port = _port;
-            timeout = _timeout;
+            config = cfg;
             IPAddress adr = IPAddress.Any;
-            IPAddress.TryParse(host, out adr);
-            IPEndPoint myEndpoint = new IPEndPoint(adr, port);
+            IPAddress.TryParse(config.Host, out adr);
+            IPEndPoint myEndpoint = new IPEndPoint(adr, config.Port);
             Start(myEndpoint);
         }
         public PDUBindTransceiver Connect(string login, string password)
         {
             if (!_socket.Connected)
             {
-                _socket.Connect(host, port);
+                _socket.Connect(config.Host, config.Port);
             }
             if (_socket.Connected)
             {
@@ -65,7 +85,11 @@ namespace PDUClient
                 PDUBindTransceiver pbt = null;
                 lock (lockObject)
                 {
-                    pbt = new PDUBindTransceiver(0, sequence += 2, login, password, timeout);
+                    unchecked
+                    {
+                        sequence++;
+                    }
+                    pbt = new PDUBindTransceiver(0, sequence, login, password, config.Timeout);
                 }
                 string sss = pbt.SystemID;
                 int recv = _socket.Send(pbt.AllData, 0, pbt.Lenght, SocketFlags.None, out se);
@@ -77,6 +101,7 @@ namespace PDUClient
                         _socket.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, new AsyncCallback(ReceiveCallback), this);
                     }
                 }
+                System.Threading.Thread.Sleep(100);
                 return pbt;
             }
             return null;
@@ -88,20 +113,106 @@ namespace PDUClient
                 _socket.Disconnect(false);
             }
         }
-        public PDUInvoke Invoke(Assembly ass, Type instanceType, MethodInfo mi, object[] arguments)
+        
+        public PDUInvoke CreateInvokeData(Assembly ass, Type instanceType, MethodInfo mi, params object[] arguments)
         {
             BindingFlags bf = (mi.IsPublic ? BindingFlags.Public : BindingFlags.NonPublic)
                             | (mi.IsStatic ? BindingFlags.Static : BindingFlags.Instance);
             bool callFromInstance = mi.IsStatic ? false : true;
-            SocketError se = new SocketError();
             PDUInvoke pi = null;
             lock (lockObject)
             {
-                pi = new PDUInvoke(0, sequence += 2, ass.FullName, instanceType.FullName, callFromInstance ? (byte)1 : (byte)0, mi.Name, bf, arguments);
+                unchecked
+                {
+                    sequence++;
+                }
+                pi = new PDUInvoke(0, sequence, ass.FullName, instanceType.FullName, callFromInstance ? (byte)1 : (byte)0, mi.Name, bf, arguments);
             }
-            int recv = _socket.Send(pi.AllData, 0, pi.Lenght, SocketFlags.None, out se);
-
             return pi;
+        }
+        public PDUInvokeByName CreateInvokeByName(String invokeName, params object[] arguments)
+        {
+            PDUInvokeByName pi = null;
+            lock (lockObject)
+            {
+                unchecked
+                {
+                    sequence++;
+                }
+                pi = new PDUInvokeByName(0, sequence, invokeName, arguments);
+            }
+            return pi;
+        }
+        
+        public SocketError InvokeAsync(PDUInvoke data)
+        {
+            SocketError se = new SocketError();
+            int recv = _socket.Send(data.AllData, 0, data.Lenght, SocketFlags.None, out se);
+            return se;
+        }
+        public SocketError InvokeAsync(PDUInvokeByName data)
+        {
+            SocketError se = new SocketError();
+            int recv = _socket.Send(data.AllData, 0, data.Lenght, SocketFlags.None, out se);
+            return se;
+        }
+        public TEntity Invoke<TEntity>(PDUInvoke data)
+        {
+            InvokeQueueItem item = new InvokeQueueItem() { request = data };
+            lock (lockObject)
+            {
+                invokeQueue.Add(data.Sequence, item);
+            }
+            try
+            {
+                SocketError se = InvokeAsync(data);
+                if (se != SocketError.Success)
+                {
+                    throw new Exception(String.Format("Ошибка транспорта SocketError={0}", se));
+                }
+                if(!item.waitEvent.WaitOne((int)config.Timeout))
+                {
+                    throw new TimeoutException(String.Format("Таймаут при ожидании результата Sequence={0}", data.Sequence));
+                }
+                TEntity result = item.response.GetInvokeResult<TEntity>();
+                return result;
+            }
+            finally
+            {
+                lock (lockObject)
+                {
+                    invokeQueue.Remove(data.Sequence);
+                }
+            }
+        }
+        public TEntity Invoke<TEntity>(PDUInvokeByName data)
+        {
+            InvokeQueueItem item = new InvokeQueueItem() { request = data };
+            lock (lockObject)
+            {
+                invokeQueue.Add(data.Sequence, item);
+            }
+            try
+            {
+                SocketError se = InvokeAsync(data);
+                if (se != SocketError.Success)
+                {
+                    throw new Exception(String.Format("Ошибка транспорта SocketError={0}", se));
+                }
+                if (!item.waitEvent.WaitOne((int)config.Timeout))
+                {
+                    throw new TimeoutException(String.Format("Таймаут при ожидании результата Sequence={0}", data.Sequence));
+                }
+                TEntity result = item.response.GetInvokeResult<TEntity>();
+                return result;
+            }
+            finally
+            {
+                lock (lockObject)
+                {
+                    invokeQueue.Remove(data.Sequence);
+                }
+            }
         }
 
         private void Start(IPEndPoint ipep)
@@ -111,8 +222,8 @@ namespace PDUClient
         private void SetupServerSocket(IPEndPoint iprp)
         {
             _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            _socket.ReceiveTimeout = (int)timeout * 2;
-            _socket.SendTimeout = (int)timeout * 2;
+            _socket.ReceiveTimeout = (int)config.Timeout * 2;
+            _socket.SendTimeout = (int)config.Timeout * 2;
             //_socket.Bind(iprp);
         }
 
@@ -255,10 +366,18 @@ namespace PDUClient
                         #endregion
                         break;
                     case 0x80000003:
+                    case 0x80000013:
                         #region invoke_response
                         try
                         {
                             PDUInvokeResp pir = new PDUInvokeResp(packet);
+
+                            if (invokeQueue.ContainsKey(pir.Sequence))
+                            {
+                                InvokeQueueItem item = invokeQueue[pir.Sequence];
+                                item.response = pir;
+                                item.waitEvent.Set();
+                            }
 
                             if (OnInvokeCompleeted != null)
                             {
@@ -297,7 +416,7 @@ namespace PDUClient
                             }
 
                             TimerCallback timerDelegate = new TimerCallback(sendGenericNack);
-                            generic_nack_timer = new Timer(timerDelegate, null, genericNackPeriod, genericNackPeriod);
+                            generic_nack_timer = new Timer(timerDelegate, null, config.GenericNackPeriod, config.GenericNackPeriod);
                         }
                         catch (Exception exc)
                         {
@@ -401,12 +520,12 @@ namespace PDUClient
         }
 
         #region events
-        public delegate void invoke<TEntity>(TEntity response);
-        public event invoke<PDUGenericNack> OnGenericNackCompleeted;
-        public event invoke<PDUEnquireLink> OnEnquireLinkCompleeted;
-        public event invoke<PDUEnquireLinkResp> OnEnquireLinkRespCompleeted;
-        public event invoke<PDUBindTransceiverResp> OnBindTransceiverCompleeted;
-        public event invoke<PDUInvokeResp> OnInvokeCompleeted;
+        public delegate void clientCallback<TEntity>(TEntity response);
+        public event clientCallback<PDUGenericNack> OnGenericNackCompleeted;
+        public event clientCallback<PDUEnquireLink> OnEnquireLinkCompleeted;
+        public event clientCallback<PDUEnquireLinkResp> OnEnquireLinkRespCompleeted;
+        public event clientCallback<PDUBindTransceiverResp> OnBindTransceiverCompleeted;
+        public event clientCallback<PDUInvokeResp> OnInvokeCompleeted;
         #endregion
     }
 }

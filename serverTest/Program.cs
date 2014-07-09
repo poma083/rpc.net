@@ -12,12 +12,8 @@ namespace serverTest
     {
         static void Main(string[] args)
         {
-            ResultServerConfig cfg = new ResultServerConfig()
-            {
-                Host = "0.0.0.0",
-                Port = 3737
-            };
-            Server server = new Server(cfg);
+            PDUConfigSection pduConfig = PDUConfigSection.GetConfig();
+            Server server = new Server(pduConfig.Server);
             server.evConnect += beforeConnect;
             server.evInvoke += beforeInvoke;
             server.Start();
@@ -38,7 +34,7 @@ namespace serverTest
         {
             return DateTime.Now;
         }
-        public DateTime? InvokeMethod_ReturnNull(UserInfo ui)
+        public DateTime? InvokeMethod_ReturnNull()
         {
             return null;
         }

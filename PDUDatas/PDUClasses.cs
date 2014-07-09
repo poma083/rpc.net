@@ -428,6 +428,88 @@ namespace PDUDatas
             }
         }
     }
+    public sealed class PDUInvokeByName : PDU
+    {
+        public PDUInvokeByName(byte[] data)
+            : base(data)
+        {
+            if (CommandID != 0x00000013)
+            {
+                throw new ArgumentException("Переданные данные не являются командой PDUInvokeByName");
+            }
+        }
+        public PDUInvokeByName(uint commandState, uint sequence, string invokeName, object[] arguments)
+            : base(0x00000013, commandState, sequence)
+        {
+            this.AddBodyPart(Encoding.ASCII.GetBytes(invokeName));
+            this.AddBodyPart(new byte[] { 0x00 });
+
+            MemoryStream stream = new MemoryStream();
+            BinaryFormatter ff = new BinaryFormatter();
+            ff.Serialize(stream, arguments);
+            byte[] serializeData = new byte[stream.Length];
+            stream.Position = 0;
+            stream.Read(serializeData, 0, (int)stream.Length);
+            AddBodyPart(serializeData);
+        }
+
+        public void GetData(out string invokeName, out object[] arguments)
+        {
+            int i = 0;
+            byte[] localBody = Body;
+
+            StringBuilder sb = new StringBuilder();
+            sb.Clear();
+            while (localBody[i] != 0x00)
+            {
+                sb.Append(Convert.ToChar(localBody[i]));
+                ++i;
+            }
+            invokeName = sb.ToString();
+            ++i;
+            MemoryStream stream = new MemoryStream();
+            stream.Write(localBody, i, localBody.Length - i);
+            stream.Position = 0;
+            BinaryFormatter ff = new BinaryFormatter();
+            arguments = (object[])ff.Deserialize(stream);
+        }
+        public string InvokeName
+        {
+            get
+            {
+                int i = 0;
+                byte[] localBody = Body;
+
+                StringBuilder sb = new StringBuilder();
+                while (localBody[i] != 0x00)
+                {
+                    sb.Append(Convert.ToChar(localBody[i]));
+                    ++i;
+                }
+                return sb.ToString();
+            }
+        }
+        public object[] Arguments
+        {
+            get
+            {
+                int i = 0;
+                byte[] localBody = Body;
+
+                while (localBody[i] != 0x00)
+                {
+                    ++i;
+                }
+                ++i;
+
+                MemoryStream stream = new MemoryStream();
+                stream.Write(localBody, i, localBody.Length - i);
+                stream.Position = 0;
+                BinaryFormatter ff = new BinaryFormatter();
+                return (object[])ff.Deserialize(stream);
+            }
+        }
+    }
     public sealed class PDUInvokeResp : PDU
     {
         [Serializable]

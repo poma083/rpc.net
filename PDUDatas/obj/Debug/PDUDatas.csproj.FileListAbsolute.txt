@@ -1,5 +1,0 @@
-C:\tcb\src\TCB.Online\PDUDatas\bin\Debug\PDUDatas.dll
-C:\tcb\src\TCB.Online\PDUDatas\bin\Debug\PDUDatas.pdb
-C:\tcb\src\TCB.Online\PDUDatas\obj\Debug\ResolveAssemblyReference.cache
-C:\tcb\src\TCB.Online\PDUDatas\obj\Debug\PDUDatas.dll
-C:\tcb\src\TCB.Online\PDUDatas\obj\Debug\PDUDatas.pdb

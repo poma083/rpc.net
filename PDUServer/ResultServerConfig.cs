@@ -10,5 +10,6 @@ namespace PDUServer
 
         public string Host { get; set; }
         public UInt16 Port { get; set; }
+        public UInt32 EnquireLinkPeriod { get; set; }
     }
 }
