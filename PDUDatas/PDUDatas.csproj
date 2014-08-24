@@ -48,6 +48,7 @@
     <Compile Include="PDUClasses.cs" />
     <Compile Include="PDUConfigSection.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="RingBuffer.cs" />
     <Compile Include="Tools.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

@@ -21,6 +21,8 @@ namespace PDUServer
         {
             config = cfg;
 
+            Assembly.Load(cfg.Assembly);
+            
             assembly = AppDomain.CurrentDomain.GetAssemblies().Where(ass => ass.FullName == cfg.Assembly).FirstOrDefault();
             instanceType = assembly.GetTypes().Where(t => t.FullName == cfg.InstanceType).FirstOrDefault();
             BindingFlags bf = BindingFlags.DeclaredOnly | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static;
@@ -90,8 +92,10 @@ namespace PDUServer
 
         private InvokeMethodsContainer()
         {
+            Logger.Log.Info("Конфигурируем именованые вызовы процедур");
             PDUConfigSection sec = PDUConfigSection.GetConfig();
             foreach(InvokeCfgElement elem in sec.Server){
+                Logger.Log.InfoFormat("Процедура \"{0}\"", elem);
                 invokeMethods.Add(elem.Name, new InvokeMethodInfo(elem));
             }
         }
@@ -116,7 +120,11 @@ namespace PDUServer
         {
             get
             {
-                return invokeMethods[name];
+                if (invokeMethods.ContainsKey(name))
+                {
+                    return invokeMethods[name];
+                }
+                return null;
             }
         }
     }

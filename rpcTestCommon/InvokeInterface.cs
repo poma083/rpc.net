@@ -7,8 +7,12 @@ namespace rpcTestCommon
 {
     public interface InvokeInterface
     {
+        int TestSumm(int a1, int a2);
+        void TestVoid();
+        DateTime? TestNulable(DateTime arg);
+        DateTime TestException();
+
+        TestClass TestBufferResize(TestClass tc);
         DateTime InvokeMethod_UserInfo(UserInfo ui);
-        DateTime? InvokeMethod_ReturnNull();        
-        void InvokeMethod_EmptyResult(UserInfo ui);
     }
 }

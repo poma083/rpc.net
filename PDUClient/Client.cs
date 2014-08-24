@@ -13,12 +13,14 @@ using System.Threading;
 
 namespace PDUClient
 {
+    public enum ClientState { NONE = 0, ENABLED = 1, DISABLED }
     public class Client
     {
         private class InvokeQueueItem : IDisposable
         {
             public PDU request;
             public PDUInvokeResp response;
+            public clientCallback<PDUInvokeResp> callback;
             public EventWaitHandle waitEvent = new EventWaitHandle(false, EventResetMode.ManualReset);
 
             #region IDisposable Members
@@ -41,17 +43,79 @@ namespace PDUClient
         private uint sequence = 0;
         private byte[] buffer = new byte[8192];
 
-        private byte[] receivedBuffer = new byte[1024 * 1024];
-        private uint positionStart = 0;
-        private uint positionFinish = 0;
+        RingBuffer ringBuffer = new RingBuffer(); 
+        //private byte[] receivedBuffer = new byte[1024 * 1024];
+        //private int positionStart = -1;
+        //private uint positionFinish = 0;
 
-        private Timer generic_nack_timer;
+        private Timer generic_nack_timer = null;
 
         private Dictionary<uint, InvokeQueueItem> invokeQueue = new Dictionary<uint, InvokeQueueItem>();
+
+        private ClientState state = ClientState.NONE;
         #endregion
+
+        public override string ToString()
+        {
+            return base.ToString();
+            StringBuilder sb = new StringBuilder("{");
+
+            sb.Append("\"State\"=\"");
+            sb.Append(state.ToString("g"));
+            sb.Append("\",");
+
+            sb.Append("\"sequence\"=\"");
+            sb.Append(sequence.ToString());
+            sb.Append("\",");
+
+            sb.Append("\"receivedBufferLength\"=\"");
+            sb.Append(ringBuffer.BufferLength.ToString());
+            sb.Append("\",");
+            if (_socket != null)
+            {
+                if (_socket.RemoteEndPoint != null)
+                {
+                    sb.Append("\"_socketAddress\"=\"");
+                    sb.Append(_socket.RemoteEndPoint.ToString());
+                    sb.Append("\",");
+                }
+
+                sb.Append("\"_socketIsConnected\"=\"");
+                sb.Append(_socket.Connected.ToString());
+                sb.Append("\",");
+            }
+            else
+            {
+                sb.Append("\"_socket\"=\"null\",");
+            }
+
+            sb.Append("\"config\"=");
+            sb.Append(config.ToString());
+
+            sb.Append("}");
+            return sb.ToString();
+        }
+        public ClientState State
+        {
+            get
+            {
+                lock (lockObject)
+                {
+                    return state;
+                }
+            }
+            set
+            {
+                lock (lockObject)
+                {
+                    state = value;
+                }
+            }
+        }
 
         private void sendGenericNack(Object state)
         {
+            SocketError se = SocketError.SocketError;
             PDUGenericNack pgn = null;
             lock (lockObject)
             {
@@ -61,59 +125,143 @@ namespace PDUClient
                 }
                 pgn = new PDUGenericNack(0, sequence);
             }
-            SocketError se = new SocketError();
-            int recv = _socket.Send(pgn.AllData, 0, pgn.Lenght, SocketFlags.None, out se);
+            try
+            {
+                int recv = Send(pgn.AllData, 0, pgn.Lenght, SocketFlags.None, out se);
+            }
+            //catch (SocketException e)
+            //{
+            //    Logger.Log.ErrorFormat("Ошибка отправки данных SocketError в sendGenericNack, SocketError={0}, Error = {1}", se, e);
+            //    Disonnect();
+            //}
+            catch (Exception e)
+            {
+                Logger.Log.Error("Ошибка при отправке данных в sendGenericNack", e);
+            }
         }
 
-        public Client(ClientCfgClass cfg)//string _host, ushort _port, uint _timeout, uint generikNack)
+        public Client(ClientCfgClass cfg)
         {
+            Logger.Log.Debug("sdfhbvg gf juyegfjy egyuf u");
             config = cfg;
             IPAddress adr = IPAddress.Any;
             IPAddress.TryParse(config.Host, out adr);
             IPEndPoint myEndpoint = new IPEndPoint(adr, config.Port);
-            Start(myEndpoint);
-        }
-        public PDUBindTransceiver Connect(string login, string password)
-        {
-            if (!_socket.Connected)
-            {
-                _socket.Connect(config.Host, config.Port);
-            }
-            if (_socket.Connected)
-            {
-                SocketError se = new SocketError();
-                PDUBindTransceiver pbt = null;
-                lock (lockObject)
-                {
-                    unchecked
-                    {
-                        sequence++;
-                    }
-                    pbt = new PDUBindTransceiver(0, sequence, login, password, config.Timeout);
-                }
-                string sss = pbt.SystemID;
-                int recv = _socket.Send(pbt.AllData, 0, pbt.Lenght, SocketFlags.None, out se);
+            // Start();
 
+            TimerCallback timerDelegate = new TimerCallback(sendGenericNack);
+            generic_nack_timer = new Timer(timerDelegate, null, config.GenericNackPeriod, config.GenericNackPeriod);
+        }
+        public PDUBindTransceiver Connect()
+        {
+            try
+            {
                 lock (lockObject)
                 {
-                    if (_socket != null)
+                    if (_socket == null)
+                        Start();
+
+                    if (!_socket.Connected)
                     {
-                        _socket.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, new AsyncCallback(ReceiveCallback), this);
+                        _socket.Connect(config.Host, config.Port);
+                    }
+                    if (_socket.Connected)
+                    {
+                        SocketError se = new SocketError();
+                        PDUBindTransceiver pbt = null;
+                        lock (lockObject)
+                        {
+                            unchecked
+                            {
+                                sequence++;
+                            }
+                            pbt = new PDUBindTransceiver(0, sequence, config.Login, config.Password, config.Timeout, config.Name);
+                        }
+                        string sss = pbt.SystemID;
+                        int recv = Send(pbt.AllData, 0, pbt.Lenght, SocketFlags.None, out se);
+
+                        if (_socket != null)
+                        {
+                            _socket.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, new AsyncCallback(ReceiveCallback), this);
+                        }
+                        System.Threading.Thread.Sleep(100);
+                        return pbt;
                     }
                 }
-                System.Threading.Thread.Sleep(100);
-                return pbt;
+            }
+            catch (SocketException e)
+            {
+                Logger.Log.Error("Ошибка в Connect", e);
+                Disonnect();
+            }
+            catch (Exception e)
+            {
+                Logger.Log.Error("Ошибка в Connect", e);
+                throw;
             }
             return null;
         }
         public void Disonnect()
         {
-            if (_socket.Connected)
+            List<InvokeQueueItem> tmp = new List<InvokeQueueItem>();
+            if (_socket == null) return;
+            lock (lockObject)
             {
-                _socket.Disconnect(false);
+                if (_socket == null) return;
+                if (_socket.Connected)
+                {
+                    _socket.Shutdown(SocketShutdown.Both);
+                    _socket.Disconnect(true);
+                }
+                _socket.Dispose();
+                if (invokeQueue != null)
+                {
+                    tmp.AddRange(invokeQueue.Values);
+                }
+                _socket = null;
+                state = ClientState.DISABLED;
+            }
+            foreach (InvokeQueueItem item in tmp)
+            {
+                item.waitEvent.Dispose();
+            }
+            lock (lockObject)
+            {
+                invokeQueue.Clear();
             }
         }
-        
+        private int Send(byte[] buffer, int offset, int size, SocketFlags socketFlags, out SocketError errorCode)
+        {
+            int result = -1;
+            lock (lockObject)
+            {
+                if (_socket == null)
+                {
+                    Connect();
+                }
+
+                if (_socket == null)
+                {
+                    Logger.Log.Error("_socket is null after Connect!");
+                    errorCode = SocketError.SocketError;
+                    return -1;
+                }
+                try
+                {
+                    result = _socket.Send(buffer, offset, size, socketFlags, out errorCode);
+                    state = ClientState.ENABLED;
+                    //Logger.Log.ErrorFormat("sended from cient={0}", ToString());
+                }
+                catch (SocketException)
+                {
+                    Logger.Log.ErrorFormat("send error from cient={0}", ToString());
+                    Disonnect();
+                    throw;
+                }
+                return result;
+            }
+        }
+
         public PDUInvoke CreateInvokeData(Assembly ass, Type instanceType, MethodInfo mi, params object[] arguments)
         {
             BindingFlags bf = (mi.IsPublic ? BindingFlags.Public : BindingFlags.NonPublic)
@@ -143,18 +291,76 @@ namespace PDUClient
             }
             return pi;
         }
-        
-        public SocketError InvokeAsync(PDUInvoke data)
+
+        private SocketError InvokeAsync(PDUInvoke data)
         {
             SocketError se = new SocketError();
-            int recv = _socket.Send(data.AllData, 0, data.Lenght, SocketFlags.None, out se);
+            int recv = Send(data.AllData, 0, data.Lenght, SocketFlags.None, out se);
             return se;
         }
-        public SocketError InvokeAsync(PDUInvokeByName data)
+        private SocketError InvokeAsync(PDUInvokeByName data)
         {
             SocketError se = new SocketError();
-            int recv = _socket.Send(data.AllData, 0, data.Lenght, SocketFlags.None, out se);
+            int recv = Send(data.AllData, 0, data.Lenght, SocketFlags.None, out se);
             return se;
+        }
+        public void InvokeAsync(PDUInvoke data, clientCallback<PDUInvokeResp> callback)
+        {
+            InvokeQueueItem item = new InvokeQueueItem() { request = data, callback = callback };
+            lock (lockObject)
+            {
+                invokeQueue.Add(data.Sequence, item);
+            }
+            SocketError se = InvokeAsync(data);
+            if (se != SocketError.Success)
+            {
+                Logger.Log.ErrorFormat("SocketException SocketError={0}", se);
+            }
+        }
+        public void InvokeAsync(PDUInvokeByName data, clientCallback<PDUInvokeResp> callback)
+        {
+            InvokeQueueItem item = new InvokeQueueItem() { request = data, callback = callback };
+            lock (lockObject)
+            {
+                invokeQueue.Add(data.Sequence, item);
+            }
+            SocketError se = InvokeAsync(data);
+            if (se != SocketError.Success)
+            {
+                Logger.Log.ErrorFormat("SocketException SocketError={0}", se);
+            }
+        }
+        public PDUInvokeResp Invoke(PDUInvoke data)
+        {
+            InvokeQueueItem item = new InvokeQueueItem() { request = data };
+            lock (lockObject)
+            {
+                invokeQueue.Add(data.Sequence, item);
+            }
+            try
+            {
+                SocketError se = InvokeAsync(data);
+                if (se != SocketError.Success)
+                {
+                    Logger.Log.ErrorFormat("SocketException SocketError={0}", se);
+                    throw new SocketException((int)se);
+                }
+                if (!item.waitEvent.WaitOne((int)config.Timeout))
+                {
+                    Logger.Log.WarnFormat("Таймаут при ожидании результата Sequence={0}", data.Sequence);
+                    throw new TimeoutException(String.Format("Таймаут при ожидании результата Sequence={0}", data.Sequence));
+                }
+                return item.response;
+                //TEntity result = item.response.GetInvokeResult<TEntity>();
+                //return result;
+            }
+            finally
+            {
+                lock (lockObject)
+                {
+                    invokeQueue.Remove(data.Sequence);
+                }
+            }
         }
         public TEntity Invoke<TEntity>(PDUInvoke data)
         {
@@ -168,14 +374,48 @@ namespace PDUClient
                 SocketError se = InvokeAsync(data);
                 if (se != SocketError.Success)
                 {
+                    Logger.Log.ErrorFormat("Ошибка транспорта SocketError={0}", se);
                     throw new Exception(String.Format("Ошибка транспорта SocketError={0}", se));
                 }
-                if(!item.waitEvent.WaitOne((int)config.Timeout))
+                if (!item.waitEvent.WaitOne((int)config.Timeout))
                 {
+                    Logger.Log.ErrorFormat("Таймаут при ожидании результата Sequence={0}", data.Sequence);
                     throw new TimeoutException(String.Format("Таймаут при ожидании результата Sequence={0}", data.Sequence));
                 }
                 TEntity result = item.response.GetInvokeResult<TEntity>();
                 return result;
+            }
+            finally
+            {
+                lock (lockObject)
+                {
+                    invokeQueue.Remove(data.Sequence);
+                }
+            }
+        }
+        public PDUInvokeResp Invoke(PDUInvokeByName data)
+        {
+            InvokeQueueItem item = new InvokeQueueItem() { request = data };
+            lock (lockObject)
+            {
+                invokeQueue.Add(data.Sequence, item);
+            }
+            try
+            {
+                SocketError se = InvokeAsync(data);
+                if (se != SocketError.Success)
+                {
+                    Logger.Log.ErrorFormat("Ошибка транспорта SocketError={0}", se);
+                    throw new Exception(String.Format("Ошибка транспорта SocketError={0}", se));
+                }
+                if (!item.waitEvent.WaitOne((int)config.Timeout))
+                {
+                    Logger.Log.ErrorFormat("Таймаут при ожидании результата Sequence={0}", data.Sequence);
+                    throw new TimeoutException(String.Format("Таймаут при ожидании результата Sequence={0}", data.Sequence));
+                }
+                //TEntity result = item.response.GetInvokeResult<TEntity>();
+                //return result;
+                return item.response;
             }
             finally
             {
@@ -197,10 +437,12 @@ namespace PDUClient
                 SocketError se = InvokeAsync(data);
                 if (se != SocketError.Success)
                 {
+                    Logger.Log.ErrorFormat("Ошибка транспорта SocketError={0}", se);
                     throw new Exception(String.Format("Ошибка транспорта SocketError={0}", se));
                 }
                 if (!item.waitEvent.WaitOne((int)config.Timeout))
                 {
+                    Logger.Log.ErrorFormat("Таймаут при ожидании результата Sequence={0}", data.Sequence);
                     throw new TimeoutException(String.Format("Таймаут при ожидании результата Sequence={0}", data.Sequence));
                 }
                 TEntity result = item.response.GetInvokeResult<TEntity>();
@@ -215,11 +457,11 @@ namespace PDUClient
             }
         }
 
-        private void Start(IPEndPoint ipep)
+        private void Start()
         {
-            SetupServerSocket(ipep);
+            SetupServerSocket();
         }
-        private void SetupServerSocket(IPEndPoint iprp)
+        private void SetupServerSocket()
         {
             _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             _socket.ReceiveTimeout = (int)config.Timeout * 2;
@@ -227,104 +469,190 @@ namespace PDUClient
             //_socket.Bind(iprp);
         }
 
-        private uint ReceivedBufferLength
-        {
-            get
-            {
-                lock (lockObject)
-                {
-                    if (positionFinish >= positionStart)
-                    {
-                        return positionFinish - positionStart;
-                    }
-                    else
-                    {
-                        return (uint)receivedBuffer.Length - positionStart + positionFinish;
-                    }
-                }
-            }
-        }
-        private void AddReceived(byte[] data)
-        {
-            try
-            {
-                lock (lockObject)
-                {
-                    if (receivedBuffer.Length - ReceivedBufferLength < (uint)data.Length)
-                    {
-                        throw new StackOverflowException("Произошло переполнение буффера requestBuffer");
-                    }
-                    uint old_positionFinish = positionFinish;
-                    uint new_positionFinish = positionFinish + (uint)data.Length;
-                    if (new_positionFinish > receivedBuffer.Length)
-                    {
-                        new_positionFinish = new_positionFinish - (uint)receivedBuffer.Length;
-                    }
-                    if (data.Length <= receivedBuffer.Length - old_positionFinish)
-                    {
-                        Array.Copy(data, 0, receivedBuffer, old_positionFinish, data.Length);
-                    }
-                    else
-                    {
-                        Array.Copy(data, 0, receivedBuffer, old_positionFinish, receivedBuffer.Length - old_positionFinish);
-                        Array.Copy(data, receivedBuffer.Length - old_positionFinish, receivedBuffer, 0, data.Length - (receivedBuffer.Length - old_positionFinish));
-                    }
-                    positionFinish = new_positionFinish;
-                }
+        #region ringBuffer
+//        private uint GetLenPacket(uint start)
+//        {
+//            uint result = 0;
+//            lock (lockObject)
+//            {
+//                if (start + 4 <= receivedBuffer.Length)
+//                {
+//                    Tools.ConvertArrayToUInt(receivedBuffer, (int)start, ref result);
+//                }
+//                else
+//                {
+//                    byte[] tmp = new byte[4];
+//                    Array.Copy(receivedBuffer, start, tmp, 0, receivedBuffer.Length - start);
+//                    Array.Copy(receivedBuffer, 0, tmp, receivedBuffer.Length - start, 4 - (receivedBuffer.Length - start));
+//                    Tools.ConvertArrayToUInt(tmp, 0, ref result);
+//                }
+//            }
+//            return result;
+//        }
+//        private uint ReceivedLength
+//        {
+//            get
+//            {
+//                lock (lockObject)
+//                {
+//                    if (positionFinish > positionStart)
+//                    {
+//                        return positionFinish - (uint)positionStart;
+//                    }
+//                    else if (positionFinish < positionStart)
+//                    {
+//                        return (uint)receivedBuffer.Length - (uint)positionStart + positionFinish;
+//                    }
+//                    else
+//                    {
+//                        return (uint)receivedBuffer.Length;
+//                    }
+//                }
+//            }
+//        }
+//        public void AddReceived(byte[] data)
+//        {
+//            try
+//            {
+//                uint dataLength = (uint)data.Length;
+//                uint receivedBufferLength = 0;
+//#if DEBUG_Performance
+//                using (System.Diagnostics.PerformanceCounter performanceCounter = new System.Diagnostics.PerformanceCounter("AverageCounter64SampleCategory", "AverageCounter64Sample"))
+//                {
+//                    System.Diagnostics.CounterSample cs1;
+//                    System.Diagnostics.CounterSample cs2;
+//                    cs2 = performanceCounter.NextSample();
+//#endif
+//                receivedBufferLength = (uint)receivedBuffer.Length;
+//#if DEBUG_Performance
+//                    cs1 = cs2;
+//                    cs2 = performanceCounter.NextSample();
+//                    Double milliseconds = (Double)(cs2.CounterTimeStamp - cs1.CounterTimeStamp) / (Double)cs1.CounterFrequency * 1000;
+//                }
+//#endif
+//                lock (lockObject)
+//                {
 
-                for (; ; )
-                {
-                    lock (lockObject)
-                    {
-                        uint requestLength = ReceivedBufferLength;
-                        if (requestLength >= 16)
-                        {
-                            uint FirstPacketLength = 0;
-                            if (positionStart + 4 <= receivedBuffer.Length)
-                            {
-                                Tools.ConvertArrayToUInt(receivedBuffer, (int)positionStart, ref FirstPacketLength);
-                            }
-                            else
-                            {
-                                byte[] tmp = new byte[4];
-                                Array.Copy(receivedBuffer, positionStart, tmp, 0, receivedBuffer.Length - positionStart);
-                                Array.Copy(receivedBuffer, 0, tmp, receivedBuffer.Length - positionStart, 4 - (receivedBuffer.Length - positionStart));
-                                Tools.ConvertArrayToUInt(tmp, 0, ref FirstPacketLength);
-                            }
-                            if (FirstPacketLength <= requestLength)
-                            {
-                                byte[] packet = new byte[FirstPacketLength];
-                                if (positionStart + FirstPacketLength < receivedBuffer.Length)
-                                {
-                                    Array.Copy(receivedBuffer, positionStart, packet, 0, FirstPacketLength);
-                                    positionStart += FirstPacketLength;
-                                }
-                                else
-                                {
-                                    Array.Copy(receivedBuffer, positionStart, packet, 0, receivedBuffer.Length - positionStart);
-                                    Array.Copy(receivedBuffer, 0, packet, receivedBuffer.Length - positionStart, FirstPacketLength - (receivedBuffer.Length - positionStart));
-                                    positionStart = FirstPacketLength - ((uint)receivedBuffer.Length - positionStart);
-                                }
-                                Task doRequestWork = new Task(DoWorkRequest, packet);
-                                doRequestWork.Start();
-                            }
-                            else
-                            {
-                                break;
-                            }
-                        }
-                        else
-                        {
-                            break;
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Log.Error("Ошибка при выполнении AddReceived", ex);
-            }
+//                    uint rl = ReceivedLength;
+//                    //перераспределяем буффер если нужно
+//                    if (receivedBufferLength < rl + dataLength)
+//                    {
+//                        Array.Resize(ref receivedBuffer, (int)receivedBufferLength + (int)dataLength);
+//                        if (positionStart > positionFinish)
+//                        {
+//                            Logger.Log.WarnFormat("Перераспределение размера буфера.");
+//                            Array.Copy(receivedBuffer, positionStart, receivedBuffer, positionStart + dataLength, receivedBufferLength - positionStart);
+//                            Array.Clear(receivedBuffer, (int)positionStart, (int)dataLength);
+//                            positionStart += (int)dataLength;
+//                        }
+//                        else if (positionStart == positionFinish)
+//                        {
+//                            if (rl > 0)
+//                            {
+//                                Logger.Log.WarnFormat("Перераспределение размера буфера. else");
+//                                Array.Copy(receivedBuffer, positionStart, receivedBuffer, positionStart + dataLength, receivedBufferLength - positionStart);
+//                                Array.Clear(receivedBuffer, (int)positionStart, (int)dataLength);
+//                                positionStart += (int)dataLength;
+//                            }
+//                        }
+//                        receivedBufferLength = (uint)receivedBuffer.Length;
+//                        Logger.Log.WarnFormat("Перераспределение размера буфера. Новый размер буфера \"{0}\"", receivedBufferLength);
+
+//                    }
+//                    //переносим пришедшие данные в наш кольцевой буфер
+//                    if (positionFinish > positionStart)
+//                    {
+//                        if (positionFinish + dataLength <= receivedBufferLength)
+//                        {
+//                            System.Buffer.BlockCopy(data, 0, receivedBuffer, (int)positionFinish, (int)dataLength);
+//                        }
+//                        else
+//                        {
+//                            Array.Copy(data, 0, receivedBuffer, positionFinish, receivedBufferLength - positionFinish);
+//                            Array.Copy(data, receivedBufferLength - positionFinish, receivedBuffer, 0, dataLength - (receivedBufferLength - positionFinish));
+//                        }
+//                        positionFinish += dataLength;
+//                        if (positionFinish > receivedBufferLength)
+//                        {
+//                            positionFinish -= receivedBufferLength;
+//                        }
+//                    }
+//                    else if (positionFinish < positionStart)
+//                    {
+//                        System.Buffer.BlockCopy(data, 0, receivedBuffer, (int)positionFinish, (int)dataLength);
+//                        positionFinish += dataLength;
+//                    }
+//                    else
+//                    {
+//                        if (positionFinish + dataLength <= receivedBufferLength)
+//                        {
+//                            System.Buffer.BlockCopy(data, 0, receivedBuffer, (int)positionFinish, (int)dataLength);
+//                        }
+//                        else
+//                        {
+//                            Array.Copy(data, 0, receivedBuffer, positionFinish, receivedBufferLength - positionFinish);
+//                            Array.Copy(data, receivedBufferLength - positionFinish, receivedBuffer, 0, dataLength - (receivedBufferLength - positionFinish));
+//                        }
+//                        positionFinish += dataLength;
+//                        if (positionFinish > receivedBufferLength)
+//                        {
+//                            positionFinish -= receivedBufferLength;
+//                        }
+
+//                        //positionFinish = 0;
+//                        //positionStart = 0;
+//                        //System.Buffer.BlockCopy(data, 0, requestBuffer, 0, (int)dataLength);
+//                        //positionFinish += dataLength;
+//                    }
+//                    //запускаем цикл обработки пакетов находящихся в кольцевом буффере
+//                    for (; ; )
+//                    {
+//                        uint requestLength = ReceivedLength;
+//                        if (requestLength >= 16)
+//                        {
+//                            uint FirstPacketLength = GetLenPacket((uint)positionStart);
+//                            if (FirstPacketLength <= requestLength)
+//                            {
+//                                byte[] packet = new byte[FirstPacketLength];
+//                                if (positionStart + FirstPacketLength <= receivedBufferLength)
+//                                {
+//                                    Array.Copy(receivedBuffer, positionStart, packet, 0, FirstPacketLength);
+//                                    Array.Clear(receivedBuffer, (int)positionStart, (int)FirstPacketLength);
+//                                    positionStart += (int)FirstPacketLength;
+//                                }
+//                                else
+//                                {
+//                                    Array.Copy(receivedBuffer, positionStart, packet, 0, receivedBufferLength - positionStart);
+//                                    Array.Copy(receivedBuffer, 0, packet, receivedBufferLength - positionStart, FirstPacketLength - (receivedBufferLength - positionStart));
+//                                    Array.Clear(receivedBuffer, (int)positionStart, (int)(receivedBufferLength - positionStart));
+//                                    Array.Clear(receivedBuffer, 0, (int)(FirstPacketLength - (receivedBufferLength - positionStart)));
+//                                    positionStart = (int)FirstPacketLength - ((int)receivedBufferLength - positionStart);
+//                                }
+//                                Task doRequestWork = new Task(DoWorkRequest, packet);
+//                                doRequestWork.Start();
+//                            }
+//                            else
+//                            {
+//                                break;
+//                            }
+//                        }
+//                        else
+//                        {
+//                            break;
+//                        }
+//                    }
+//                }
+//            }
+//            catch (Exception exc)
+//            {
+//                Logger.Log.Error("Ошибка при выполнении AddReceived", exc);
+//            }
+//        }
+        public void AddReceived(byte[] data)
+        {
+            ringBuffer.Add(data, DoWorkRequest);
         }
+        #endregion
 
         private void DoWorkRequest(object state)
         {
@@ -333,6 +661,7 @@ namespace PDUClient
                 byte[] packet = state as byte[];
                 if (packet == null)
                 {
+                    Logger.Log.Fatal("Буффер пакета не должен быть null");
                     throw new ArgumentException("Буффер пакета не должен быть null");
                 }
 
@@ -355,13 +684,13 @@ namespace PDUClient
                                 }
                                 catch (Exception exc)
                                 {
-                                    Logger.Log.Fatal("Ошибка при пользовательской обработке OnGenericNackCompleeted ", exc);
+                                    Logger.Log.Warn("Ошибка при пользовательской обработке OnGenericNackCompleeted ", exc);
                                 }
                             }
                         }
                         catch (Exception exc)
                         {
-                            Logger.Log.Fatal("Неизвестная ошибка в case 0x80000000 ReceiveCallback | ", exc);
+                            Logger.Log.Error("Неизвестная ошибка в case 0x80000000 ReceiveCallback | ", exc);
                         }
                         #endregion
                         break;
@@ -377,6 +706,17 @@ namespace PDUClient
                                 InvokeQueueItem item = invokeQueue[pir.Sequence];
                                 item.response = pir;
                                 item.waitEvent.Set();
+                                if (item.callback != null)
+                                {
+                                    try
+                                    {
+                                        item.callback(pir);
+                                    }
+                                    catch (Exception exc)
+                                    {
+                                        Logger.Log.Warn("Ошибка при пользовательской обработке в методе обратного вызова ", exc);
+                                    }
+                                }
                             }
 
                             if (OnInvokeCompleeted != null)
@@ -387,13 +727,13 @@ namespace PDUClient
                                 }
                                 catch (Exception exc)
                                 {
-                                    Logger.Log.Fatal("Ошибка при пользовательской обработке OnInvokeCompleeted ", exc);
+                                    Logger.Log.Warn("Ошибка при пользовательской обработке OnInvokeCompleeted ", exc);
                                 }
                             }
                         }
                         catch (Exception exc)
                         {
-                            Logger.Log.Fatal("Неизвестная ошибка в case 0x80000003 ReceiveCallback | ", exc);
+                            Logger.Log.Error("Неизвестная ошибка в case 0x80000003 ReceiveCallback | ", exc);
                         }
                         #endregion
                         break;
@@ -411,16 +751,14 @@ namespace PDUClient
                                 }
                                 catch (Exception exc)
                                 {
-                                    Logger.Log.Fatal("Ошибка при пользовательской обработке OnBindTransceiverCompleeted ", exc);
+                                    Logger.Log.Warn("Ошибка при пользовательской обработке OnBindTransceiverCompleeted ", exc);
                                 }
                             }
-
-                            TimerCallback timerDelegate = new TimerCallback(sendGenericNack);
-                            generic_nack_timer = new Timer(timerDelegate, null, config.GenericNackPeriod, config.GenericNackPeriod);
+                            state = pbtr.CommandState == 0 ? ClientState.ENABLED : ClientState.DISABLED;
                         }
                         catch (Exception exc)
                         {
-                            Logger.Log.Fatal("Неизвестная ошибка в case 0x80000009 ReceiveCallback | ", exc);
+                            Logger.Log.Error("Неизвестная ошибка в case 0x80000009 ReceiveCallback | ", exc);
                         }
                         #endregion
                         break;
@@ -437,7 +775,7 @@ namespace PDUClient
                                 }
                                 catch (Exception exc)
                                 {
-                                    Logger.Log.Fatal("Ошибка при пользовательской обработке OnEnquireLinkCompleeted ", exc);
+                                    Logger.Log.Warn("Ошибка при пользовательской обработке OnEnquireLinkCompleeted ", exc);
                                 }
                             }
 
@@ -445,13 +783,20 @@ namespace PDUClient
 
                             lock (lockObject)
                             {
-                                SocketError se = SocketError.Success;
-                                _socket.Send(pelr.AllData, 0, pelr.Lenght, SocketFlags.None, out se);
+                                try
+                                {
+                                    SocketError se = SocketError.Success;
+                                    Send(pelr.AllData, 0, pelr.Lenght, SocketFlags.None, out se);
+                                }
+                                catch (SocketException e)
+                                {
+                                    Logger.Log.Error("Ошибка в enquire_link send", e);
+                                }
                             }
                         }
                         catch (Exception exc)
                         {
-                            Logger.Log.Fatal("Неизвестная ошибка в case 0x80000009 ReceiveCallback | ", exc);
+                            Logger.Log.Error("Неизвестная ошибка в case 0x80000009 ReceiveCallback | ", exc);
                         }
                         #endregion
                         break;
@@ -470,13 +815,13 @@ namespace PDUClient
                                 }
                                 catch (Exception exc)
                                 {
-                                    Logger.Log.Fatal("Ошибка при пользовательской обработке OnEnquireLinkRespCompleeted ", exc);
+                                    Logger.Log.Warn("Ошибка при пользовательской обработке OnEnquireLinkRespCompleeted ", exc);
                                 }
                             }
                         }
                         catch (Exception exc)
                         {
-                            Logger.Log.Fatal("Неизвестная ошибка в case 0x80000009 ReceiveCallback | ", exc);
+                            Logger.Log.Error("Неизвестная ошибка в case 0x80000009 ReceiveCallback | ", exc);
                         }
                         #endregion
                         break;
@@ -489,31 +834,37 @@ namespace PDUClient
         }
         private void ReceiveCallback(IAsyncResult result)
         {
-            try
+            if (_socket == null) return;
+
+            lock (lockObject)
             {
-                int ressived = _socket.EndReceive(result);
-                byte[] packet = new byte[ressived];
-                Array.Copy(buffer, 0, packet, 0, ressived);
-                AddReceived(packet);
-            }
-            catch (Exception exc)
-            {
-                Logger.Log.Error("Ошибка в ReceiveCallback", exc);
-            }
-            finally
-            {
-                lock (lockObject)
+                if (_socket == null) return;
+                try
                 {
-                    if (_socket != null)
+                    int ressived = _socket.EndReceive(result);
+                    byte[] packet = new byte[ressived];
+                    Array.Copy(buffer, 0, packet, 0, ressived);
+                    AddReceived(packet);
+                }
+                catch (Exception exc)
+                {
+                    Logger.Log.Error("Ошибка в ReceiveCallback", exc);
+                }
+                finally
+                {
+                    try
                     {
-                        try
-                        {
-                            _socket.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, new AsyncCallback(ReceiveCallback), this);
-                        }
-                        catch
-                        {
-                            Console.Read();
-                        }
+                        _socket.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, new AsyncCallback(ReceiveCallback), this);
+                    }
+                    catch (SocketException e)
+                    {
+                        Logger.Log.Error("Ошибка в ReceiveCallback", e);
+                        Disonnect();
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.Log.Error("Ошибка в ReceiveCallback", e);
+                        throw;
                     }
                 }
             }

@@ -23,7 +23,7 @@ namespace PDUDatas
                 throw new ArgumentException("Переданные данные не являются командой BindTransceiver");
             }
         }
-        public PDUBindTransceiver(uint _commandState, uint _prevsequence, string systemId, string pass, uint timeout)
+        public PDUBindTransceiver(uint _commandState, uint _prevsequence, string systemId, string pass, uint timeout, string configurationName)
             : base(0x00000009, _commandState, _prevsequence)
         {
             AddBodyPart(Encoding.ASCII.GetBytes(systemId));
@@ -34,9 +34,11 @@ namespace PDUDatas
             byte[] l = new byte[4];
             Tools.ConvertUIntToArray(timeout, out l);
             AddBodyPart(l);
+            AddBodyPart(Encoding.ASCII.GetBytes(configurationName));
+            AddBodyPart(new byte[] { 0x00 });
         }
 
-        public void GetData(out string systemId, out string password, out uint timeout)
+        public void GetData(out string systemId, out string password, out uint timeout, out string configurationName)
         {
             pos = 0;
             StringBuilder sb = new StringBuilder();
@@ -59,6 +61,15 @@ namespace PDUDatas
             uint i = 0;
             Tools.ConvertArrayToUInt(this.Body, pos, ref i);
             timeout = i;
+            pos += 4;
+            sb.Clear();
+            while (Body[pos] != 0x00)
+            {
+                sb.Append(Convert.ToChar(Body[pos]));
+                ++pos;
+            }
+            configurationName = sb.ToString();
+            ++pos;
         }
         public string SystemID
         {
@@ -115,6 +126,31 @@ namespace PDUDatas
                 uint i = 0;
                 Tools.ConvertArrayToUInt(this.Body, pos, ref i);
                 return i;
+            }
+        }
+        public string ConfigurationName
+        {
+            get
+            {
+                pos = 0;
+                while (Body[pos] != 0x00)
+                {
+                    ++pos;
+                }
+                ++pos;
+                while (Body[pos] != 0x00)
+                {
+                    ++pos;
+                }
+                ++pos;
+                pos += 4;
+                StringBuilder sb = new StringBuilder();
+                while (Body[pos] != 0x00)
+                {
+                    sb.Append(Convert.ToChar(Body[pos]));
+                    ++pos;
+                }
+                return sb.ToString();
             }
         }
     }

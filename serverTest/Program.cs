@@ -8,7 +8,7 @@ using rpcTestCommon;
 
 namespace serverTest
 {
-    class Program : InvokeInterface
+    class Program
     {
         static void Main(string[] args)
         {
@@ -28,19 +28,6 @@ namespace serverTest
         static void beforeInvoke(PDU data, ConnectionInfo ci)
         {
             Type ttt = ((PDUInvoke)data).InstanceType;
-        }
-
-        public DateTime InvokeMethod_UserInfo(UserInfo ui)
-        {
-            return DateTime.Now;
-        }
-        public DateTime? InvokeMethod_ReturnNull()
-        {
-            return null;
-        }
-        public void InvokeMethod_EmptyResult(UserInfo ui)
-        {
-            ui.LastDateUpdate = DateTime.Now;
         }
     }
 }

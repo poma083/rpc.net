@@ -33,9 +33,11 @@ namespace PDUServer
 
         Guid id;
         List<PDU> PDUResponseQueue = new List<PDU>();
-        byte[] requestBuffer = new byte[1024 * 1024];
-        uint positionStart = 0;
-        uint positionFinish = 0;
+
+        RingBuffer ringBuffer = new RingBuffer();
+        //byte[] requestBuffer = new byte[1024];
+        //int positionStart = -1;
+        //uint positionFinish = 0;
         #endregion
 
         public ConnectionInfo(SortedList<Guid, ConnectionInfo> _owner, Socket s, uint EnquireLinkPeriod)
@@ -236,133 +238,162 @@ namespace PDUServer
                 this.timeout = _timeout;
             }
         }
-        private uint RequestLength
-        {
-            get
-            {
-                lock (enterLockObject)
-                {
-                    if (positionFinish >= positionStart)
-                    {
-                        return positionFinish - positionStart;
-                    }
-                    else
-                    {
-                        return (uint)requestBuffer.Length - positionStart + positionFinish;
-                    }
-                }
-            }
-        }
+        
+        #region ringBuffer
+        //private uint GetLenPacket(uint start)
+        //{
+        //    uint result = 0;
+        //    lock (enterLockObject)
+        //    {
+        //        if (start + 4 <= requestBuffer.Length)
+        //        {
+        //            Tools.ConvertArrayToUInt(requestBuffer, (int)start, ref result);
+        //        }
+        //        else
+        //        {
+        //            byte[] tmp = new byte[4];
+        //            Array.Copy(requestBuffer, start, tmp, 0, requestBuffer.Length - start);
+        //            Array.Copy(requestBuffer, 0, tmp, requestBuffer.Length - start, 4 - (requestBuffer.Length - start));
+        //            Tools.ConvertArrayToUInt(tmp, 0, ref result);
+        //        }
+        //    }
+        //    return result;
+        //}
+        //private uint RequestLength
+        //{
+        //    get
+        //    {
+        //        lock (enterLockObject)
+        //        {
+        //            if (positionStart < 0)
+        //            {
+        //                return 0;
+        //            }
+        //            if (positionFinish > positionStart)
+        //            {
+        //                return positionFinish - (uint)positionStart;
+        //            }
+        //            else if (positionFinish < positionStart)
+        //            {
+        //                return (uint)requestBuffer.Length - (uint)positionStart + positionFinish;
+        //            }
+        //            else
+        //            {
+        //                return (uint)requestBuffer.Length;
+        //            }
+        //        }
+        //    }
+        //}
+        //public void AddRequest(byte[] data)
+        //{
+        //    try
+        //    {
+        //        lastReciveCommandTime = DateTime.Now;
+        //        uint dataLength = (uint)data.Length;
+        //        lock (enterLockObject)
+        //        {
+        //            uint requestBufferLength = (uint)requestBuffer.Length;
+        //            uint rl = RequestLength;
+        //            #region если пришедшие данные не влазят в свободное пространство кольцевого буфера
+        //            // то выделим под кольцевой буффер дополнительное пространство
+        //            if (requestBufferLength < rl + dataLength) // не влазят
+        //            {
+        //                Array.Resize(ref requestBuffer, (int)requestBufferLength + (int)dataLength);
+        //                if (positionStart >= positionFinish)
+        //                {
+        //                    Array.Copy(requestBuffer, positionStart, requestBuffer, positionStart + dataLength, requestBufferLength - positionStart);
+        //                    positionStart += (int)dataLength;
+        //                }
+        //                requestBufferLength = (uint)requestBuffer.Length;
+        //                Logger.Log.WarnFormat("Перераспределение размера буфера. Новый размер буфера \"{0}\"", requestBufferLength);
 
+        //            }
+        //            #endregion
+        //            #region переносим пришедшие данные в наш кольцевой буфер
+        //            if (positionFinish > positionStart)
+        //            {
+        //                if (positionFinish + dataLength <= requestBufferLength)
+        //                {
+        //                    System.Buffer.BlockCopy(data, 0, requestBuffer, (int)positionFinish, (int)dataLength);
+        //                }
+        //                else
+        //                {
+        //                    Array.Copy(data, 0, requestBuffer, positionFinish, requestBufferLength - positionFinish);
+        //                    Array.Copy(data, requestBufferLength - positionFinish, requestBuffer, 0, dataLength - (requestBufferLength - positionFinish));
+        //                }
+        //                if (positionStart < 0) //то-есть буфер был пуст
+        //                {
+        //                    positionStart = (int)positionFinish;
+        //                }
+        //                positionFinish += dataLength;
+        //                if (positionFinish > requestBufferLength)
+        //                {
+        //                    positionFinish -= requestBufferLength;
+        //                }
+        //            }
+        //            else if (positionFinish < positionStart)
+        //            {
+        //                System.Buffer.BlockCopy(data, 0, requestBuffer, (int)positionFinish, (int)dataLength);
+        //                positionFinish += dataLength;
+        //            }
+        //            else
+        //            {
+        //                throw new StackOverflowException("Произошло переполнение буффера requestBuffer");
+        //            }
+        //            #endregion
+        //            #region запускаем цикл обработки пакетов находящихся в кольцевом буффере
+        //            for (; ; )
+        //            {
+        //                uint requestLength = RequestLength;
+        //                if (requestLength >= 16)
+        //                {
+        //                    uint FirstPacketLength = GetLenPacket((uint)positionStart);
+        //                    if (FirstPacketLength <= requestLength)
+        //                    {
+        //                        byte[] packet = new byte[FirstPacketLength];
+        //                        if (positionStart + FirstPacketLength <= requestBufferLength)
+        //                        {
+        //                            Array.Copy(requestBuffer, positionStart, packet, 0, FirstPacketLength);
+        //                            positionStart += (int)FirstPacketLength;
+        //                        }
+        //                        else
+        //                        {
+        //                            Array.Copy(requestBuffer, positionStart, packet, 0, requestBufferLength - positionStart);
+        //                            Array.Copy(requestBuffer, 0, packet, requestBufferLength - positionStart, FirstPacketLength - (requestBufferLength - positionStart));
+        //                            positionStart = (int)FirstPacketLength - ((int)requestBufferLength - positionStart);
+        //                        }
+        //                        if (positionStart == positionFinish)//то-есть буфер пуст
+        //                        {
+        //                            positionStart = -1;
+        //                        }
+        //                        Task doRequestWork = new Task(DoWorkRequest, packet);
+        //                        doRequestWork.Start();
+        //                    }
+        //                    else
+        //                    {
+        //                        break;
+        //                    }
+        //                }
+        //                else
+        //                {
+        //                    break;
+        //                }
+        //            }
+        //            #endregion
+        //        }
+        //    }
+        //    catch (Exception exc)
+        //    {
+        //        Logger.Log.ErrorFormat("Ошибка AddRequest клиент={0} address={1}", Id, RemoteEndPoint, exc);
+        //    }
+        //}
         public void AddRequest(byte[] data)
         {
-            try
-            {
-                lastReciveCommandTime = DateTime.Now;
-                uint dataLength = (uint)data.Length;
-                uint requestBufferLength = 0;
-#if DEBUG_Performance
-                using (System.Diagnostics.PerformanceCounter performanceCounter = new System.Diagnostics.PerformanceCounter("AverageCounter64SampleCategory", "AverageCounter64Sample"))
-                {
-                    System.Diagnostics.CounterSample cs1;
-                    System.Diagnostics.CounterSample cs2;
-                    cs2 = performanceCounter.NextSample();
-#endif
-                requestBufferLength = (uint)requestBuffer.Length;
-#if DEBUG_Performance
-                    cs1 = cs2;
-                    cs2 = performanceCounter.NextSample();
-                    Double milliseconds = (Double)(cs2.CounterTimeStamp - cs1.CounterTimeStamp) / (Double)cs1.CounterFrequency * 1000;
-                }
-#endif
-                lock (enterLockObject)
-                {
-                    if (requestBufferLength - RequestLength < dataLength)
-                    {
-                        throw new StackOverflowException("Произошло переполнение буффера requestBuffer");
-                    }
-                    uint old_positionFinish = positionFinish;
-                    uint new_positionFinish = positionFinish + dataLength;
-                    if (new_positionFinish > requestBufferLength)
-                    {
-                        new_positionFinish = new_positionFinish - requestBufferLength;
-                    }
-                    if (dataLength <= requestBufferLength - old_positionFinish)
-                    {
-#if DEBUG_Performance
-                        using (System.Diagnostics.PerformanceCounter performanceCounter = new System.Diagnostics.PerformanceCounter("AverageCounter64SampleCategory", "AverageCounter64Sample"))
-                        {
-                            System.Diagnostics.CounterSample cs1;
-                            System.Diagnostics.CounterSample cs2;
-                            cs2 = performanceCounter.NextSample();
-#endif
-                        //Array.Copy(data, 0, requestBuffer, old_positionFinish, dataLength);
-                        System.Buffer.BlockCopy(data, 0, requestBuffer, (int)old_positionFinish, (int)dataLength);
-#if DEBUG_Performance
-                            cs1 = cs2;
-                            cs2 = performanceCounter.NextSample();
-                            Double milliseconds = (Double)(cs2.CounterTimeStamp - cs1.CounterTimeStamp) / (Double)cs1.CounterFrequency * 1000;
-                        }
-#endif
-                    }
-                    else
-                    {
-                        Array.Copy(data, 0, requestBuffer, old_positionFinish, requestBufferLength - old_positionFinish);
-                        Array.Copy(data, requestBufferLength - old_positionFinish, requestBuffer, 0, dataLength - (requestBufferLength - old_positionFinish));
-                    }
-                    positionFinish = new_positionFinish;
-
-                    for (; ; )
-                    {
-                        uint requestLength = RequestLength;
-                        if (requestLength >= 16)
-                        {
-                            uint FirstPacketLength = 0;
-                            if (positionStart + 4 <= requestBufferLength)
-                            {
-                                Tools.ConvertArrayToUInt(requestBuffer, (int)positionStart, ref FirstPacketLength);
-                            }
-                            else
-                            {
-                                byte[] tmp = new byte[4];
-                                Array.Copy(requestBuffer, positionStart, tmp, 0, requestBufferLength - positionStart);
-                                Array.Copy(requestBuffer, 0, tmp, requestBufferLength - positionStart, 4 - (requestBufferLength - positionStart));
-                                Tools.ConvertArrayToUInt(tmp, 0, ref FirstPacketLength);
-                            }
-                            if (FirstPacketLength <= requestLength)
-                            {
-                                byte[] packet = new byte[FirstPacketLength];
-                                if (positionStart + FirstPacketLength < requestBufferLength)
-                                {
-                                    Array.Copy(requestBuffer, positionStart, packet, 0, FirstPacketLength);
-                                    positionStart += FirstPacketLength;
-                                }
-                                else
-                                {
-                                    Array.Copy(requestBuffer, positionStart, packet, 0, requestBufferLength - positionStart);
-                                    Array.Copy(requestBuffer, 0, packet, requestBufferLength - positionStart, FirstPacketLength - (requestBufferLength - positionStart));
-                                    positionStart = FirstPacketLength - (requestBufferLength - positionStart);
-                                }
-                                Task doRequestWork = new Task(DoWorkRequest, packet);
-                                doRequestWork.Start();
-                            }
-                            else
-                            {
-                                break;
-                            }
-                        }
-                        else
-                        {
-                            break;
-                        }
-                    }
-                }
-            }
-            catch (Exception exc)
-            {
-                Logger.Log.ErrorFormat("Ошибка AddRequest клиент={0} address={1}", Id, RemoteEndPoint, exc);
-            }
+            lastReciveCommandTime = DateTime.Now;
+            ringBuffer.Add(data, DoWorkRequest);
         }
+        #endregion
+
         private int AddPDUToResponseQueue(PDU data)
         {
             lock (PDUResponseQueue)
@@ -434,7 +465,6 @@ namespace PDUServer
                             }
 
                             pt.CommandState = isCompleted ? (uint)0 : (uint)3;
-
 
                             SetTimeout((int)pt.Timeout);
                             if (evConnect != null)
@@ -683,31 +713,35 @@ namespace PDUServer
 
                                 object[] aaa = pi_bn.Arguments;
 
-                                InvokeMethodsContainer inst = InvokeMethodsContainer.Instance;
-
-                                InvokeMethodInfo info = InvokeMethodsContainer.Instance[pi_bn.InvokeName];
-
                                 object data = null;
                                 Exception invokationException = null;
-                                try
+                                InvokeMethodInfo info = InvokeMethodsContainer.Instance[pi_bn.InvokeName];
+                                if (info != null)
                                 {
-                                    data = info.InstanceType.InvokeMember(
-                                        info.MethodName, 
-                                        BindingFlags.InvokeMethod | BindingFlags.DeclaredOnly | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static, 
-                                        null, 
-                                        info.Instance, 
-                                        aaa
-                                    );
-                                    // создадим ответ и добавим в очередь обработки
-                                    RespData = new PDUInvokeResp(0, pi_bn.Sequence + 1, info.ReturnType.FullName, data, null);
+                                    try
+                                    {
+                                        data = info.InstanceType.InvokeMember(
+                                            info.MethodName,
+                                            BindingFlags.InvokeMethod | BindingFlags.DeclaredOnly | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static,
+                                            null,
+                                            info.Instance,
+                                            aaa
+                                        );
+                                        // создадим ответ и добавим в очередь обработки
+                                        RespData = new PDUInvokeResp(0, pi_bn.Sequence + 1, info.ReturnType.FullName, data, null);
+                                    }
+                                    catch (TargetInvocationException ex)
+                                    {
+                                        // создадим ответ и добавим в очередь обработки
+                                        invokationException = ex.InnerException;
+                                    }
                                 }
-                                catch (TargetInvocationException ex)
+                                else
                                 {
-                                    // создадим ответ и добавим в очередь обработки
-                                    invokationException = ex.InnerException;
+                                    invokationException = new MissingMethodException("invoke_by_name",pi_bn.InvokeName);
                                 }
 
-                                RespData = new PDUInvokeResp(0, pi_bn.Sequence, info.ReturnType.FullName, data, invokationException);
+                                RespData = new PDUInvokeResp(0, pi_bn.Sequence, typeof(void).FullName, data, invokationException);
                             }
                             else
                             {
@@ -732,7 +766,7 @@ namespace PDUServer
                         }
                         catch (Exception exc)
                         {
-                            Logger.Log.Fatal("Неизвестная ошибка в case 0x00000003 ReceiveCallback | ", exc);
+                            Logger.Log.Fatal("Неизвестная ошибка в case 0x00000013 ReceiveCallback | ", exc);
                         }
                         #endregion
                         break;

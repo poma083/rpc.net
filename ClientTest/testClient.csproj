@@ -68,6 +68,9 @@
     <CodeAnalysisIgnoreBuiltInRules>false</CodeAnalysisIgnoreBuiltInRules>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="log4net">
+      <HintPath>..\lib\log4net.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.configuration" />
     <Reference Include="System.Core" />
@@ -78,6 +81,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Logger.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
@@ -93,10 +97,6 @@
     <ProjectReference Include="..\rpcTestCommon\rpcTestCommon.csproj">
       <Project>{EDAF1733-AE89-443C-B920-E54627900212}</Project>
       <Name>rpcTestCommon</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\serverTest\testServer.csproj">
-      <Project>{BCCB0AAA-3A38-4D75-9DEA-046EB5526516}</Project>
-      <Name>testServer</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>

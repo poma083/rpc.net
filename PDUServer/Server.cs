@@ -16,13 +16,15 @@ namespace PDUServer
 
         public Server(ServerCfgClass rsc)
         {
-            Logger.Log.Debug("Запускаем TCP-сервер...");
+            Logger.Log.Info("Конфигурируем TCP-сервер...");
             serverConfig = rsc;
+            InvokeMethodsContainer inst = InvokeMethodsContainer.Instance;
         }
         public bool Start()
         {
             try
             {
+                Logger.Log.Info("Запускаем TCP-сервер...");
                 SetupServerSocket();
                 for (int i = 0; i < 10; i++)
                 {
@@ -114,10 +116,6 @@ namespace PDUServer
                 int bytesRead = connection.EndReceive(result);
                 if (0 != bytesRead)
                 {
-                    //if (bytesRead < 16)
-                    //{
-                    //    throw new IndexOutOfRangeException("Клличество принятых байт меньше длинны заголовка");
-                    //}
                     if (bytesRead > 0)
                     {
                         byte[] packet = null;
