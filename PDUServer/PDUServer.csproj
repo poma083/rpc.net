@@ -47,8 +47,8 @@
     <Compile Include="ConnectionInfo.cs" />
     <Compile Include="ConnectionStates.cs" />
     <Compile Include="Delegates.cs" />
+    <Compile Include="InvokeEventsContainer.cs" />
     <Compile Include="InvokeMethodsContainer.cs" />
-    <Compile Include="Logger.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ResultServerConfig.cs" />
     <Compile Include="Server.cs" />

@@ -7,9 +7,34 @@ using rpcTestCommon;
 
 namespace testServer.TestType
 {
+    public static class UITest
+    {
+        static UserInfo ui;
+
+        static UITest()
+        {
+            ui = new UserInfo()
+            {
+                Address = "СССР",
+                Family = "Гагарин",
+                Father = "Алексеевич",
+                DateCreate = DateTime.Now,
+                LastDateUpdate = DateTime.Now,
+                Name = "Юрий",
+                Phone = Guid.NewGuid().ToString("N")
+            };
+        }
+
+        public static UserInfo InvokeMethod_UserInfoAnswer(UserInfo ui)
+        {
+            return ui;
+        }
+    }
     public class TestType : InvokeInterface
     {
         #region ITestType Members
+        static byte[] ttt = new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf };
+        //static UserInfo ui;
 
         public int TestSumm(int a1, int a2)
         {
@@ -29,27 +54,42 @@ namespace testServer.TestType
 
         public TestClass TestBufferResize(TestClass tc)
         {
-            byte[] archiveContent = null;
-            try
-            {
-                using (FileStream fs = new FileStream("testServer.log", FileMode.Open, FileAccess.Read, FileShare.Read))
-                {
-                    archiveContent = new byte[fs.Length];
-                    fs.Read(archiveContent, 0, archiveContent.Length);
-                }
-            }
-            catch(Exception e){
+            //byte[] archiveContent = null;
+            //try
+            //{
+            //    using (FileStream fs = new FileStream("serverTest.exe", FileMode.Open, FileAccess.Read, FileShare.Read))
+            //    {
+            //        archiveContent = new byte[fs.Length];
+            //        fs.Read(archiveContent, 0, archiveContent.Length);
+            //    }
+            //}
+            //catch(Exception e){
 
-            }
+            //}
             TestClass result = new TestClass()
             {
-                Content = archiveContent
+                Content = ttt//archiveContent//
             };
             return result;
         }
         public DateTime InvokeMethod_UserInfo(UserInfo ui)
         {
             return DateTime.Now;
+        }
+        public UserInfo InvokeMethod_UserInfoAnswer(UserInfo ui)
+        {
+            UserInfo result = new UserInfo()
+            {
+                Address = ui.Address,
+                Family = ui.Family,
+                Father = ui.Father,
+                Name = ui.Name,
+                DateCreate = ui.DateCreate,
+                Phone = "answer"
+            };
+            result.LastDateUpdate = DateTime.Now;
+                
+            return result;
         }
         #endregion
     }

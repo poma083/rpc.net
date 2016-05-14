@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Reflection;
 using System.Configuration;
+using System.Security.Cryptography.X509Certificates;
 
 namespace PDUServer
 {
@@ -18,9 +19,11 @@ namespace PDUServer
         private enum CheckSystemIntegrityState { WORKED, ENABLE }
         #region private fields
         private object enterLockObject = new object();
+        UserCfgClass userCfg;
 
         private Socket sSocket;
         private SortedList<Guid, ConnectionInfo> owner;
+        private HashSet<string> subscribes = new HashSet<string>(); 
         private uint validitySessionPeriod;
         private uint enquireLinkPeriod;
         private Timer enquire_link_timer;
@@ -32,6 +35,8 @@ namespace PDUServer
         private int timeout = 30000;
 
         Guid id;
+        String systemId;
+        String clientName;
         List<PDU> PDUResponseQueue = new List<PDU>();
 
         RingBuffer ringBuffer = new RingBuffer();
@@ -54,7 +59,6 @@ namespace PDUServer
             TimerCallback timerDelegate = new TimerCallback(checkSystemIntegrity);
             enquire_link_timer = new Timer(timerDelegate, null, enquireLinkPeriod, enquireLinkPeriod);
         }
-
         private void checkSystemIntegrity(Object state)
         {
             if (checkSystemIntegrityState == CheckSystemIntegrityState.WORKED)
@@ -100,7 +104,7 @@ namespace PDUServer
                         }
                         pdu.CommandState = 0;
                         //pdu.Lenght = 16;-
-                        pdu.CommandID = 0x00000015;
+                        pdu.CommandID = MessageType.EnquireLink;
                         pdu.CommandState = 0x0000000D;
 
                         if (pdu != null)
@@ -132,7 +136,6 @@ namespace PDUServer
             }
 
         }//checkSystemIntegrity
-
         public Guid Id
         {
             get
@@ -183,6 +186,7 @@ namespace PDUServer
                 if (sSocket != null)
                 {
                     sSocket.Close();
+                    sSocket.Dispose();
                     sSocket = null;
                 }
             }
@@ -412,21 +416,19 @@ namespace PDUServer
                 {
                     throw new ArgumentException("Буффер пакета не должен быть null");
                 }
-
                 uint Command = 0;
                 Tools.ConvertArrayToUInt(packet, 4, ref Command);
-
+                Logger.Log.DebugFormat("DoWorkRequest:{0}", Command);
                 byte[] mid = new byte[] { 0x30, 0x31, 0x32, 0x33, 0x00 };
                 PDU RespData = null;
-                switch (Command)
+                MessageType cmd = (MessageType)Command;
+                switch (cmd)
                 {
-                    case 0x80000000://generic_nack
+                    case MessageType.GenericNack://generic_nack
                         #region generic_nack
                         try
                         {
-                            Logger.Log.Debug("DoWorkRequest:generic_nack");
                             PDUGenericNack pgn = new PDUGenericNack(packet);
-
                             if (evGenericNack != null)
                             {
                                 try
@@ -441,24 +443,25 @@ namespace PDUServer
                         }
                         catch (Exception exc)
                         {
-                            Logger.Log.Fatal("Неизвестная ошибка в case 0x80000000 ReceiveCallback | ", exc);
+                            Logger.Log.FatalFormat("{0}: Неизвестная ошибка в case {1} ReceiveCallback | {2}", clientName, cmd.ToString("g"), exc);
                         }
                         #endregion
                         break;
-                    case 0x00000009://bind_transceiver
+                    case MessageType.BindTransceiver://bind_transceiver
                         #region bind_transceiver
                         try
                         {
-                            Logger.Log.Debug("DoWorkRequest:bind_transceiver");
                             PDUBindTransceiver pt = new PDUBindTransceiver(packet);
+                            systemId = pt.SystemID;
+                            clientName = pt.ConfigurationName;
 
                             PDUConfigSection sec = (PDUConfigSection)ConfigurationManager.GetSection("PDUConfig");
 
                             bool isCompleted = false;
-                            UserCfgClass uc = sec.Server.Users[pt.SystemID];
-                            if (uc != null)
+                            userCfg = sec.Server.Users[pt.SystemID];
+                            if (userCfg != null)
                             {
-                                if (uc.Password.Equals(pt.Password))
+                                if (userCfg.Password.Equals(pt.Password))
                                 {
                                     isCompleted = true;
                                 }
@@ -503,15 +506,14 @@ namespace PDUServer
                         }
                         catch (Exception exc)
                         {
-                            Logger.Log.Fatal("Неизвестная ошибка в case 0x00000009 ReceiveCallback | ", exc);
+                            Logger.Log.FatalFormat("{0}: Неизвестная ошибка в case {1} ReceiveCallback | {2}", clientName, cmd.ToString("g"), exc);
                         }
                         #endregion
                         break;
-                    case 0x00000015://enquire_link
+                    case MessageType.EnquireLink://enquire_link
                         #region enquire_link
                         try
                         {
-                            Logger.Log.Debug("DoWorkRequest:enquire_link");
                             PDUEnquireLink pel = new PDUEnquireLink(packet);
 
                             if (evEnquireLink != null)
@@ -547,15 +549,14 @@ namespace PDUServer
                         }
                         catch (Exception exc)
                         {
-                            Logger.Log.Fatal("Неизвестная ошибка в case 0x00000015 ReceiveCallback | ", exc);
+                            Logger.Log.FatalFormat("{0}: Неизвестная ошибка в case {1} ReceiveCallback | {2}", clientName, cmd.ToString("g"), exc);
                         }
                         #endregion
                         break;
-                    case 0x80000015://enquire_link_response
+                    case MessageType.EnquireLinkResp://enquire_link_response
                         #region enquire_link_response
                         try
                         {
-                            Logger.Log.Debug("DoWorkRequest:enquire_link_response");
                             HeadPDU head = new HeadPDU(packet);
                             PDUEnquireLinkResp pelr = new PDUEnquireLinkResp(head.commandstate, head.sequence);
 
@@ -585,16 +586,23 @@ namespace PDUServer
                         }
                         catch (Exception exc)
                         {
-                            Logger.Log.Fatal("Неизвестная ошибка в case 0x00000015 ReceiveCallback | ", exc);
+                            Logger.Log.FatalFormat("{0}: Неизвестная ошибка в case {1} ReceiveCallback | {2}", clientName, cmd.ToString("g"), exc);
                         }
                         #endregion
                         break;
-                    case 0x00000003://invoke
+                    case MessageType.Invoke://invoke
                         #region invoke
                         try
                         {
-                            Logger.Log.Debug("DoWorkRequest:invoke");
                             PDUInvoke pi = new PDUInvoke(packet);
+                            string assName;
+                            string typeName;
+                            byte isInstance;
+                            string method;
+                            BindingFlags bindingFlags;
+                            object[] arguments;
+                            pi.GetData(out assName, out typeName, out isInstance, out method, out bindingFlags, out arguments);
+                            Logger.Log.DebugFormat("\"{0}\": {1}->{2}->{3}", clientName, assName, typeName, method);
                             if (ConnectionState == ConnectionStates.BINDED)
                             {
                                 if (evInvoke != null)
@@ -640,22 +648,25 @@ namespace PDUServer
                                     instanceType = pi.InstanceType;
                                 }
                                 object instance = null;
-                                if (pi.IsInstance == 1)
+                                if (isInstance == 1)
                                 {
                                     instance = instanceType.GetConstructor(new Type[] { }).Invoke(new object[] { });
                                 }
-                                MemberInfo mi = instanceType.GetMethod(pi.Method, pi.BindingFlags);
-                                object[] aaa = pi.Arguments;
-
-                                Type returnType = ((MethodInfo)mi).ReturnType;
+                                Type[] argumentTypes = new Type[arguments.Length];
+                                for (int i = 0; i < arguments.Length; i++ )
+                                {
+                                    argumentTypes[i] = arguments[i].GetType();
+                                }
+                                MethodInfo mi = instanceType.GetMethod(method, bindingFlags, null, argumentTypes, null);
+                                Type returnType = mi.ReturnType;
 
                                 object data = null;
                                 Exception invokationException = null;
                                 try
                                 {
-                                    data = instanceType.InvokeMember(pi.Method, BindingFlags.InvokeMethod | pi.BindingFlags, null, instance, aaa);
-                                    // создадим ответ и добавим в очередь обработки
-                                    RespData = new PDUInvokeResp(0, pi.Sequence + 1, returnType.FullName, data, null);
+                                    data = mi.Invoke(instance, arguments);
+                                    //data = instanceType.InvokeMember(method, BindingFlags.InvokeMethod | bindingFlags, null, instance, arguments);
+                                    InvokeEventsContainer.Instance.Set(mi, argumentTypes);
                                 }
                                 catch (TargetInvocationException ex)
                                 {
@@ -687,15 +698,14 @@ namespace PDUServer
                         }
                         catch (Exception exc)
                         {
-                            Logger.Log.Fatal("Неизвестная ошибка в case 0x00000003 ReceiveCallback | ", exc);
+                            Logger.Log.FatalFormat("{0}: Неизвестная ошибка в case {1} ReceiveCallback | {2}", clientName, cmd.ToString("g"), exc);
                         }
                         #endregion
                         break;
-                    case 0x00000013://invokeByName
+                    case MessageType.InvokeByName://invokeByName
                         #region invokeByName
                         try
                         {
-                            Logger.Log.Debug("DoWorkRequest:invokeByName");
                             PDUInvokeByName pi_bn = new PDUInvokeByName(packet);
                             if (ConnectionState == ConnectionStates.BINDED)
                             {
@@ -711,24 +721,26 @@ namespace PDUServer
                                     }
                                 }
 
-                                object[] aaa = pi_bn.Arguments;
+                                object[] arguments = null;
+                                string alias = null;
+                                pi_bn.GetData(out alias, out arguments);
 
                                 object data = null;
                                 Exception invokationException = null;
-                                InvokeMethodInfo info = InvokeMethodsContainer.Instance[pi_bn.InvokeName];
+                                InvokeMethodInfo info = InvokeMethodsContainer.Instance[alias];
                                 if (info != null)
                                 {
                                     try
                                     {
-                                        data = info.InstanceType.InvokeMember(
-                                            info.MethodName,
-                                            BindingFlags.InvokeMethod | BindingFlags.DeclaredOnly | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static,
-                                            null,
-                                            info.Instance,
-                                            aaa
-                                        );
-                                        // создадим ответ и добавим в очередь обработки
-                                        RespData = new PDUInvokeResp(0, pi_bn.Sequence + 1, info.ReturnType.FullName, data, null);
+                                        data = info.MethodInfo.Invoke(info.Instance, arguments);
+                                        //data = info.InstanceType.InvokeMember(
+                                        //    info.MethodName,
+                                        //    BindingFlags.InvokeMethod | BindingFlags.DeclaredOnly | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static,
+                                        //    null,
+                                        //    info.Instance,
+                                        //    arguments
+                                        //);
+                                        InvokeEventsContainer.Instance.Set(alias);
                                     }
                                     catch (TargetInvocationException ex)
                                     {
@@ -741,7 +753,8 @@ namespace PDUServer
                                     invokationException = new MissingMethodException("invoke_by_name",pi_bn.InvokeName);
                                 }
 
-                                RespData = new PDUInvokeResp(0, pi_bn.Sequence, typeof(void).FullName, data, invokationException);
+                                // создадим ответ и добавим в очередь обработки
+                                RespData = new PDUInvokeResp(0, pi_bn.Sequence, info.ReturnType.FullName, data, invokationException);
                             }
                             else
                             {
@@ -766,9 +779,171 @@ namespace PDUServer
                         }
                         catch (Exception exc)
                         {
-                            Logger.Log.Fatal("Неизвестная ошибка в case 0x00000013 ReceiveCallback | ", exc);
+                            Logger.Log.FatalFormat("{0}: Неизвестная ошибка в case {1} ReceiveCallback | {2}", clientName, cmd.ToString("g"), exc);
                         }
                         #endregion
+                        break;
+                    case MessageType.InvokeSecureByName://invokeSecureByName
+                        #region invokeSecureByName
+                        try
+                        {
+                            PDUInvokeSecureByName pis_bn = new PDUInvokeSecureByName(packet);
+
+                            Exception invokationException = null;
+                            if (ConnectionState == ConnectionStates.BINDED)
+                            {
+                                if (evInvokeByName != null)
+                                {
+                                    try
+                                    {
+                                        evInvokeByName(pis_bn, this);
+                                    }
+                                    catch (Exception exc)
+                                    {
+                                        Logger.Log.FatalFormat("\"{0}\": Ошибка при пользовательской обработке evInvokeByName {1}", clientName, exc);
+                                    }
+                                }
+                                InvokeMethodInfo info = null;
+                                object data = null;
+                                object[] arguments = null;
+                                string alias = null;
+                                byte[] clientPublicCertificateRaw = null;
+                                X509Certificate2 clientPublicCertificate = null;
+                                try
+                                {
+                                    pis_bn.GetData(out alias, out arguments, out clientPublicCertificateRaw,
+                                        userCfg.ServerCertificate.StoreName, 
+                                        userCfg.ServerCertificate.StoreLocation, 
+                                        userCfg.ServerCertificate.Thumbprint);
+                                    clientPublicCertificate = new X509Certificate2(clientPublicCertificateRaw);
+                                    //SCZI.ValidateCertificate(clientPublicCertificate);
+                                    info = InvokeMethodsContainer.Instance[alias];
+                                }
+                                catch (System.Security.Cryptography.CryptographicException cEx)
+                                {
+                                    invokationException = cEx;
+                                }
+                                if (invokationException == null)
+                                {
+                                    try
+                                    {
+                                        data = info.MethodInfo.Invoke(info.Instance, arguments);
+                                        //data = info.InstanceType.InvokeMember(
+                                        //    info.MethodName,
+                                        //    BindingFlags.InvokeMethod | BindingFlags.DeclaredOnly | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static,
+                                        //    null,
+                                        //    info.Instance,
+                                        //    arguments
+                                        //);
+                                        InvokeEventsContainer.Instance.Set(alias);
+                                    }
+                                    catch (TargetInvocationException ex)
+                                    {
+                                        invokationException = ex.InnerException;
+                                    }
+                                }
+                                // создадим ответ и добавим в очередь обработки
+                                RespData = new PDUInvokeSecureResp(0, pis_bn.Sequence, info != null ? info.ReturnType.FullName : "", data, invokationException, clientPublicCertificate);
+                            }
+                            else
+                            {
+                                invokationException = new AccessViolationException(String.Format("\"{0}\": Клиент не прошёл авторизацию", clientName));
+                                // создадим ответ и добавим в очередь обработки
+                                RespData = new PDUInvokeResp(0, pis_bn.Sequence, "", null, invokationException);
+                            }
+
+                            if (evInvokeByNameCompleted != null)
+                            {
+                                try
+                                {
+                                    evInvokeByNameCompleted(RespData, this);
+                                }
+                                catch (Exception exc)
+                                {
+                                    Logger.Log.FatalFormat("\"{0}\": Ошибка при пользовательской обработке evInvokeByNameCompleted {1}", clientName, exc);
+                                }
+                            }
+                            if (RespData != null)
+                            {
+                                AddPDUToResponseQueue(RespData);
+                            }
+                        }
+                        catch (Exception exc)
+                        {
+                            Logger.Log.FatalFormat("\"{0}\": Неизвестная ошибка в case {1} ReceiveCallback | {2}", clientName, cmd, exc);
+                        }
+                        #endregion
+                        break;
+                    case MessageType.Wait://wait
+                        #region wait
+                        try
+                        {
+                            PDUWait pw = new PDUWait(packet);
+                            string key;
+                            WaitType waitType;
+                            pw.GetData(out key, out waitType);
+                            if (ConnectionState == ConnectionStates.BINDED)
+                            {
+                                //if (evInvoke != null)
+                                //{
+                                //    try
+                                //    {
+                                //        evInvoke(pi, this);
+                                //    }
+                                //    catch (Exception exc)
+                                //    {
+                                //        Logger.Log.Fatal("Ошибка при пользовательской обработке evInvoke ", exc);
+                                //    }
+                                //}
+                                Exception invokationException = null;
+                                try
+                                {
+                                    InvokeEvent @event = InvokeEventsContainer.Instance.Create(key);
+                                    if(waitType == WaitType.WaitAll)
+                                    {
+                                        @event.WaitManual();
+                                    }
+                                    else
+                                    {
+                                        @event.WaitAuto();
+                                    }
+                                }
+                                catch (TargetInvocationException ex)
+                                {
+                                    // создадим ответ и добавим в очередь обработки
+                                    invokationException = ex.InnerException;
+                                }
+                                RespData = new PDUWaitResp(0, pw.Sequence);
+                            }
+                            else
+                            {
+                                RespData = new PDUWaitResp(3, pw.Sequence);
+                            }
+
+                            //if (evInvokeCompleted != null)
+                            //{
+                            //    try
+                            //    {
+                            //        evInvokeCompleted(RespData, this);
+                            //    }
+                            //    catch (Exception exc)
+                            //    {
+                            //        Logger.Log.Fatal("Ошибка при пользовательской обработке evInvokeCompleted ", exc);
+                            //    }
+                            //}
+                            if (RespData != null)
+                            {
+                                AddPDUToResponseQueue(RespData);
+                            }
+                        }
+                        catch (Exception exc)
+                        {
+                            Logger.Log.FatalFormat("{0}: Неизвестная ошибка в case {1} ReceiveCallback | {2}", clientName, cmd.ToString("g"), exc);
+                        }
+                        #endregion
+                        break;
+                    default :
+                        Logger.Log.FatalFormat("{0}: Неизвестная команда {1}", clientName, cmd);
                         break;
                 }
 

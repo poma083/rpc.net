@@ -1,6 +1,8 @@
 ﻿
-Microsoft Visual Studio Solution File, Format Version 11.00
-# Visual Studio 2010
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2013
+VisualStudioVersion = 12.0.21005.1
+MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PDUClient", "PDUClient\PDUClient.csproj", "{6368C4DD-1836-4004-A250-78EA2179FDF9}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PDUDatas", "PDUDatas\PDUDatas.csproj", "{DDBE3C87-72A5-4A56-9658-A76CAD47D257}"
@@ -12,6 +14,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "testClient", "ClientTest\testClient.csproj", "{8233DD08-107E-4D91-99D7-14D01EF63B6B}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "rpcTestCommon", "rpcTestCommon\rpcTestCommon.csproj", "{EDAF1733-AE89-443C-B920-E54627900212}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test", "test", "{B79FDDF5-713D-4541-8424-2EDA91A6E5CB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WaitTestClient", "WaitTestClient\WaitTestClient.csproj", "{91478E60-3BB7-4C3F-85F4-7C7441B10F5E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -85,8 +91,21 @@ Global
 		{EDAF1733-AE89-443C-B920-E54627900212}.Release|Mixed Platforms.ActiveCfg = Release|Any CPU
 		{EDAF1733-AE89-443C-B920-E54627900212}.Release|Mixed Platforms.Build.0 = Release|Any CPU
 		{EDAF1733-AE89-443C-B920-E54627900212}.Release|x86.ActiveCfg = Release|Any CPU
+		{91478E60-3BB7-4C3F-85F4-7C7441B10F5E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{91478E60-3BB7-4C3F-85F4-7C7441B10F5E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{91478E60-3BB7-4C3F-85F4-7C7441B10F5E}.Debug|Mixed Platforms.ActiveCfg = Debug|Any CPU
+		{91478E60-3BB7-4C3F-85F4-7C7441B10F5E}.Debug|Mixed Platforms.Build.0 = Debug|Any CPU
+		{91478E60-3BB7-4C3F-85F4-7C7441B10F5E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{91478E60-3BB7-4C3F-85F4-7C7441B10F5E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{91478E60-3BB7-4C3F-85F4-7C7441B10F5E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{91478E60-3BB7-4C3F-85F4-7C7441B10F5E}.Release|Mixed Platforms.ActiveCfg = Release|Any CPU
+		{91478E60-3BB7-4C3F-85F4-7C7441B10F5E}.Release|Mixed Platforms.Build.0 = Release|Any CPU
+		{91478E60-3BB7-4C3F-85F4-7C7441B10F5E}.Release|x86.ActiveCfg = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{91478E60-3BB7-4C3F-85F4-7C7441B10F5E} = {B79FDDF5-713D-4541-8424-2EDA91A6E5CB}
 	EndGlobalSection
 EndGlobal

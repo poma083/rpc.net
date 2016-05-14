@@ -12,6 +12,9 @@ namespace serverTest
     {
         static void Main(string[] args)
         {
+            Console.BufferHeight = 9999;
+            Console.BufferWidth = 999;
+            
             PDUConfigSection pduConfig = PDUConfigSection.GetConfig();
             Server server = new Server(pduConfig.Server);
             server.evConnect += beforeConnect;

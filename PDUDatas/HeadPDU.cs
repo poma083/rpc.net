@@ -18,7 +18,7 @@ namespace PDUDatas
             data = _data;
         }
 
-        public HeadPDU(int length, uint commandid, uint commandstate, uint sequence)
+        public HeadPDU(int length, MessageType commandid, uint commandstate, uint sequence)
         {
             this.length = length;
             this.commandid = commandid;
@@ -163,7 +163,7 @@ namespace PDUDatas
         public byte blength0;
 
         [FieldOffsetAttribute(4)]
-        public uint commandid;
+        public MessageType commandid;
         [FieldOffsetAttribute(4)]
         public byte bcommandid3;
         [FieldOffsetAttribute(5)]

@@ -9,6 +9,8 @@ using PDUDatas;
 using System.Net.Sockets;
 using System.IO;
 using rpcTestCommon;
+using System.Security.Cryptography.X509Certificates;
+using System.Runtime.InteropServices;
 
 namespace testClient
 {
@@ -26,6 +28,8 @@ namespace testClient
         static MethodInfo invokeMethodTestBufferResize = null;
         static MethodInfo invokeMethod_UserInfo = null;
 
+        static StringBuilder sb = new StringBuilder();
+
         static void Main(string[] args)
         {
             Console.BufferHeight = 9999;
@@ -37,69 +41,33 @@ namespace testClient
             {
                 PDUClient = new Client(clientCfg);
             }
-
-            Logger.Log.Info("press entyer to continue");
-            Console.ReadLine();
-
-            #region testBufferResize
-            for (int i = 0; i < 1000; i++)
-            {
-                //Console.ReadLine();
-                Logger.Log.InfoFormat("i={0}", i);
-                byte[] archiveContent = null;
-                try
-                {
-                    using (FileStream fs = new FileStream("testClient.log", FileMode.Open, FileAccess.Read, FileShare.Read))
-                    {
-                        archiveContent = new byte[fs.Length];
-                        fs.Read(archiveContent, 0, archiveContent.Length);
-                    }
-                }
-                catch (Exception ex)
-                {
-
-                }
-                TestClass tc = new TestClass()
-                {
-                    Content = archiveContent
-                };
-
-                PDUInvokeByName ibn_Test = PDUClient.CreateInvokeByName("byName.BufferResizeMethod", new object[] { tc });
-                try
-                {
-                    Logger.Log.Info("Invoke.Before BufferResizeMethod");
-                    TestClass testClass = PDUClient.Invoke<TestClass>(ibn_Test);
-                    if (testClass.Content != null)
-                    {
-                        Logger.Log.Info(string.Format("Length={0}", testClass.Content.Length));
-                    }
-                    else
-                    {
-                        Logger.Log.Info(string.Format("Length={0}", 0));
-                    }
-
-                    Logger.Log.Info("Invoke.Affter BufferResizeMethod");
-                }
-                catch (PDURequestException pre)
-                {
-                    Logger.Log.Info(pre.InnerException);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Log.Info(ex);
-                }
-                
-            }
-            #endregion
-            Logger.Log.Info("press entyer to continue");
-            Console.ReadLine();
-
+            PDUClient.Connect();
             PDUClient.OnBindTransceiverCompleeted += BindTransceiverResult;
             PDUClient.OnInvokeCompleeted += InvokeResult;
             PDUClient.OnEnquireLinkCompleeted += EnquireLink;
 
+            Logger.Log.Info("///////////////////////////    test DateTime.Parse call with onew argument   ///////////////////////////");
+            Logger.Log.Info("press entyer to continue");
+            Console.ReadLine();
+            #region test DateTime.Parse call with onew argument
+            PDUInvokeByName ibn_dtParse = PDUClient.CreateInvokeByName("DateTime.Parse", new object[] { "2016-05-23 23:44:04" });
+            try
+            {
+                Logger.Log.Info("Invoke.Before DateTime.Parse");
+                DateTime dtParse = PDUClient.Invoke<DateTime>(ibn_dtParse);
+                Logger.Log.Info(string.Format("{0}", dtParse));
+                Logger.Log.Info("Invoke.Affter DateTime.Parse");
+            }
+            catch (PDURequestException pre)
+            {
+                Logger.Log.Info(pre.InnerException);
+            }
+            #endregion
+            
             Logger.Log.Info("///////////////////////////    test sync call    ///////////////////////////");
             Logger.Log.Info("///////////////////////////   test call by name  ///////////////////////////");
+            Logger.Log.Info("press entyer to continue");
+            Console.ReadLine();
             int arg1 = 5;
             int arg2 = -4;
             #region TestSummMethod
@@ -115,6 +83,12 @@ namespace testClient
             {
                 Logger.Log.Info(pre.InnerException);
             }
+            #endregion
+            #region test wait
+            //for (; ; )
+            //{
+            //    PDUClient.WaitInvoke("byName.TestSummMethod", WaitCallback);
+            //}
             #endregion
             #region TestExceptionMethod
             PDUInvokeByName ibn_Exception = PDUClient.CreateInvokeByName("byName.TestExceptionMethod", new object[] { });
@@ -163,6 +137,7 @@ namespace testClient
                 Address = "СССР",
                 Family = "Гагарин",
                 Father = "Алексеевич",
+                DateCreate = DateTime.Now,
                 LastDateUpdate = DateTime.Now,
                 Name = "Юрий",
                 Phone = "-"
@@ -181,13 +156,12 @@ namespace testClient
             }
             #endregion
 
-            Logger.Log.Info("press entyer to continue");
-            Console.ReadLine();
-
             PDUClient.OnInvokeCompleeted -= InvokeResult;
 
             Logger.Log.Info("///////////////////////////    test sync call    ///////////////////////////");
             Logger.Log.Info("////////////////////////   test call by interface   ////////////////////////");
+            Logger.Log.Info("press entyer to continue");
+            Console.ReadLine();
 
             invokeAssembly = Assembly.GetAssembly(typeof(InvokeInterface)); // DataModel.SmartVista.ISmartVista
             invokeType = invokeAssembly.GetTypes().Where(t => t.Name == "InvokeInterface").SingleOrDefault();
@@ -267,11 +241,11 @@ namespace testClient
                 Logger.Log.Info(pre.InnerException);
             }
             #endregion
-            Logger.Log.Info("press entyer to continue");
-            Console.ReadLine();
-
+            
             Logger.Log.Info("//////////////////////////    test async call     //////////////////////////");
             Logger.Log.Info("////////////////////////   test call by interface   ////////////////////////");
+            Logger.Log.Info("press entyer to continue");
+            Console.ReadLine();
             #region TestSummMethod
             try
             {
@@ -332,8 +306,114 @@ namespace testClient
                 Logger.Log.Info(pre.InnerException);
             }
             #endregion
+
+            Logger.Log.Info("//////////////////////////    test Buffer Resize 1000 cycles     //////////////////////////");
+            Logger.Log.Info("press entyer to continue");
+            Console.ReadLine();
+            #region testBufferResize
+            byte[] archiveContent = null;
+            try
+            {
+                using (FileStream fs = new FileStream("testClient.exe", FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    archiveContent = new byte[fs.Length];
+                    fs.Read(archiveContent, 0, archiveContent.Length);
+                }
+            }
+            catch (Exception ex)
+            {
+
+            }
+            TestClass tc = new TestClass()
+            {
+                Content = archiveContent
+            };
+            Logger.Log.Info("testBufferResize start");
+            for (int i = 0; i < 1000; i++)
+            {
+                //Console.ReadLine();
+                //Logger.Log.InfoFormat("i={0}", i);
+                //if((i % 100) == 0)
+                //{
+                //    Logger.Log.InfoFormat("i={0}", i);
+                //}
+                try
+                {
+                    PDUInvokeByName ibn_Test = PDUClient.CreateInvokeByName("byName.BufferResizeMethod", new object[] { tc });
+                    //Logger.Log.Info("Invoke.Before BufferResizeMethod");
+                    TestClass testClass = PDUClient.Invoke<TestClass>(ibn_Test);
+                    if (testClass.Content != null)
+                    {
+                        //    Logger.Log.Info(string.Format("Length={0}", testClass.Content.Length));
+                    }
+                    else
+                    {
+                        Logger.Log.Info(string.Format("Length={0}", 0));
+                    }
+
+                    //Logger.Log.Info("Invoke.Affter BufferResizeMethod");
+                }
+                catch (PDURequestException pre)
+                {
+                    Logger.Log.Info(pre.InnerException);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log.Info(ex);
+                }
+
+            }
+            #endregion
+
+            Logger.Log.Info("//////////////////////////    test User Type transmit and receive 10 000 cycles     //////////////////////////");
+            Logger.Log.Info("press entyer to continue");
+            //int sss = Marshal.SizeOf(typeof(UserInfo));
+            Console.ReadLine();
+            #region TestUserType
+            X509Certificate2 cs = SCZI.FindCertificate(clientCfg.ServerCertificate.StoreName,
+                clientCfg.ServerCertificate.StoreLocation, clientCfg.ServerCertificate.Thumbprint);
+            Logger.Log.Info("TestUserAnswerType start");
+            for (int i = 0; i < 10000; i++)
+            {
+                UserInfo ui2 = new UserInfo()
+                {
+                    Address = "СССР",
+                    Family = "Гагарин",
+                    Father = "Алексеевич",
+                    DateCreate = DateTime.Now,
+                    LastDateUpdate = DateTime.Now,
+                    Name = "Юрий",
+                    Phone = Guid.NewGuid().ToString("N")
+                };
+                PDUInvokeByName ibn_UserType2 = PDUClient.CreateInvokeByName("TestUserAnswerType", new object[] { ui });
+                //PDUInvokeSecureByName ibn_UserType2 = PDUClient.CreateInvokeSecureByName("TestUserAnswerType", new object[] { ui2 },
+                //    clientCfg.ClientCertificate.StoreName, clientCfg.ClientCertificate.StoreLocation, clientCfg.ClientCertificate.Thumbprint,
+                //    cs);
+                try
+                {
+                    //Logger.Log.Info("Invoke.Before TestUserAnswerType");
+                    PDUClient.InvokeAsync(ibn_UserType2, TestUserAnswerTypeCallback);
+                    //Logger.Log.Info(string.Format("TestUserAnswerType.Result = \"{0}\"", u_answer.LastDateUpdate.ToString("HH:mm:ss.ttt")));
+                    //Logger.Log.Info("Invoke.Affter TestUserAnswerType");
+                }
+                catch (PDURequestException pre)
+                {
+                    Logger.Log.Info(pre.InnerException);
+                }
+            }
+            //Logger.Log.Info(sb.ToString());
+            //sb.Clear();
+            Console.ReadLine();
+            Logger.Log.Info(sb.ToString());
+            #endregion
             Logger.Log.Info("press entyer to exit");
             Console.ReadLine();
+        }
+
+        private static void TestUserAnswerTypeCallback(PDUResp pduResponse)
+        {
+            UserInfo uinf = pduResponse.GetInvokeResult<UserInfo>();
+            sb.AppendLine(string.Format("TestUserAnswerTypeCallback time=\"{0}\" createTime=\"{1}\" result=\"{2}\"", DateTime.Now.ToString("HH:mm:ss.fff"), uinf.DateCreate.ToString("HH:mm:ss.fff"), uinf.LastDateUpdate.ToString("HH:mm:ss.fff")));
         }
 
         static void BindTransceiverResult(PDUBindTransceiverResp result)
@@ -343,9 +423,20 @@ namespace testClient
                 Logger.Log.Info("Неудача авторизации");
             }
         }
-        static void InvokeResult(PDUInvokeResp result)
+        static void InvokeResult(PDUResp result)
         {
-            if (result.TypeName == typeof(DateTime).FullName)
+            if (result.TypeName == typeof(Int32).FullName)
+            {
+                try
+                {
+                    Logger.Log.InfoFormat("{0}", result.GetInvokeResult<Int32>());
+                }
+                catch (PDURequestException ex)
+                {
+                    Logger.Log.Info(ex.InnerException);
+                }
+            }
+            else if (result.TypeName == typeof(DateTime).FullName)
             {
                 try
                 {
@@ -394,12 +485,12 @@ namespace testClient
             Logger.Log.Info(String.Format("receive EnquireLink sequence={0}", link.Sequence));
         }
 
-        static void InvokeSummCallback(PDUInvokeResp pduResponse)
+        static void InvokeSummCallback(PDUResp pduResponse)
         {
             int summ = pduResponse.GetInvokeResult<int>();
             Logger.Log.Info(string.Format("InvokeSummCallback result=\"{0}\"", summ));
         }
-        static void InvokeExceptionCallback(PDUInvokeResp pduResponse)
+        static void InvokeExceptionCallback(PDUResp pduResponse)
         {
             try
             {
@@ -410,20 +501,26 @@ namespace testClient
                 Logger.Log.Info(pre.InnerException);
             }
         }
-        static void InvokeVoidCallback(PDUInvokeResp pduResponse)
+        static void InvokeVoidCallback(PDUResp pduResponse)
         {
             object obj = pduResponse.GetInvokeResult<object>();
             Logger.Log.Info(string.Format("InvokeVoidCallback result=\"{0}\"", obj));
         }
-        static void InvokeNullableCallback(PDUInvokeResp pduResponse)
+        static void InvokeNullableCallback(PDUResp pduResponse)
         {
             DateTime? dt = pduResponse.GetInvokeResult<DateTime?>();
             Logger.Log.Info(string.Format("InvokeNullableCallback result=\"{0}\"", dt));
         }
-        static void InvokeUserTypeCallback(PDUInvokeResp pduResponse)
+        static void InvokeUserTypeCallback(PDUResp pduResponse)
         {
             DateTime dt = pduResponse.GetInvokeResult<DateTime>();
             Logger.Log.Info(string.Format("InvokeUserTypeCallback result=\"{0}\"", dt));
+        }
+
+        static void WaitCallback(PDUWaitResp pduResponse)
+        {
+            uint seq = pduResponse.Sequence;
+            Logger.Log.Info(string.Format("Wait result sequence=\"{0}\"", seq));
         }
     }
 }

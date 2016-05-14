@@ -13,7 +13,7 @@ namespace PDUDatas
         #endregion
 
         #region constructors
-        public PDU(uint command_id, uint command_state, uint sequence, byte[] body)
+        public PDU(MessageType command_id, uint command_state, uint sequence, byte[] body)
         {
             int len = 16;
             if (body != null)
@@ -38,7 +38,7 @@ namespace PDUDatas
             //    this.body = null;
             //}
         }
-        public PDU(uint command_id, uint command_state, uint sequence)
+        public PDU(MessageType command_id, uint command_state, uint sequence)
             : this(command_id, command_state, sequence, null) { }
         public PDU()
             : this(0, 0, 0, null) { }
@@ -143,7 +143,7 @@ namespace PDUDatas
                 return head.length;
             }
         }
-        public uint CommandID
+        public MessageType CommandID
         {
             get
             {
